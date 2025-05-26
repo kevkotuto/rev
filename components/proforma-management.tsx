@@ -20,7 +20,10 @@ import {
   Trash2,
   MoreHorizontal,
   Settings,
-  ArrowRight
+  ArrowRight,
+  Send,
+  Mail,
+  AlertCircle
 } from "lucide-react"
 import {
   Dialog,
@@ -44,6 +47,7 @@ import { toast } from "sonner"
 import { PDFStatus } from "./pdf-status"
 import { PartialInvoiceConversion } from "./partial-invoice-conversion"
 import { PartialConversionInfo } from "./partial-conversion-info"
+import { EmailPreviewDialog } from "./email-preview-dialog"
 
 interface ProformaStatus {
   projectAmount: number
@@ -94,7 +98,10 @@ export function ProformaManagement({ projectId, onProformaUpdated }: ProformaMan
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isPartialConversionOpen, setIsPartialConversionOpen] = useState(false)
+  const [isEmailDialogOpen, setIsEmailDialogOpen] = useState(false)
   const [selectedProformaForConversion, setSelectedProformaForConversion] = useState<string | null>(null)
+  const [selectedProformaForEmail, setSelectedProformaForEmail] = useState<string>("")
+  const [smtpStatus, setSmtpStatus] = useState<any>(null)
   const [actionType, setActionType] = useState<"update_amount" | "create_new" | "sync_with_project">("create_new")
   const [editingProforma, setEditingProforma] = useState<any>(null)
   const [formData, setFormData] = useState({
@@ -117,6 +124,7 @@ export function ProformaManagement({ projectId, onProformaUpdated }: ProformaMan
 
   useEffect(() => {
     fetchStatus()
+    checkSmtpStatus()
   }, [projectId])
 
   const fetchStatus = async () => {
@@ -133,6 +141,18 @@ export function ProformaManagement({ projectId, onProformaUpdated }: ProformaMan
       toast.error('Erreur lors du chargement du statut des proformas')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const checkSmtpStatus = async () => {
+    try {
+      const response = await fetch('/api/user/smtp-status')
+      if (response.ok) {
+        const data = await response.json()
+        setSmtpStatus(data)
+      }
+    } catch (error) {
+      console.error('Erreur lors de la vérification SMTP:', error)
     }
   }
 
@@ -229,6 +249,25 @@ export function ProformaManagement({ projectId, onProformaUpdated }: ProformaMan
   const openPartialConversionDialog = (proformaId: string) => {
     setSelectedProformaForConversion(proformaId)
     setIsPartialConversionOpen(true)
+  }
+
+  const handleSendEmail = (proformaId: string) => {
+    // Vérifier d'abord la configuration SMTP
+    if (!smtpStatus?.isConfigured) {
+      toast.error(
+        "Configuration SMTP manquante. Veuillez configurer vos paramètres email dans votre profil.",
+        {
+          action: {
+            label: "Configurer",
+            onClick: () => window.open('/dashboard/profile', '_blank')
+          }
+        }
+      )
+      return
+    }
+
+    setSelectedProformaForEmail(proformaId)
+    setIsEmailDialogOpen(true)
   }
 
   const resetForm = () => {
@@ -351,6 +390,25 @@ export function ProformaManagement({ projectId, onProformaUpdated }: ProformaMan
       {/* Information sur la nouvelle fonctionnalité */}
       <PartialConversionInfo />
 
+      {/* Alerte de configuration SMTP */}
+      {smtpStatus && !smtpStatus.isConfigured && (
+        <Alert className="border-orange-200 bg-orange-50">
+          <AlertCircle className="h-4 w-4 text-orange-600" />
+          <AlertDescription className="text-orange-800">
+            <strong>Configuration email manquante :</strong> Pour envoyer des proformas par email, 
+            veuillez d'abord configurer vos paramètres SMTP dans votre{" "}
+            <Button
+              variant="link"
+              className="h-auto p-0 text-orange-700 underline"
+              onClick={() => window.open('/dashboard/profile', '_blank')}
+            >
+              profil
+            </Button>
+            .
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Alertes et recommandations */}
       {status.needsUpdate && (
         <motion.div
@@ -405,6 +463,27 @@ export function ProformaManagement({ projectId, onProformaUpdated }: ProformaMan
                 Créer une nouvelle version avec le prix actuel
               </span>
             </Button>
+
+            {/* Envoyer la dernière proforma par email */}
+            {status.latestProforma && (
+              <Button
+                variant="outline"
+                className="h-auto p-4 flex flex-col items-start gap-2 border-blue-200"
+                onClick={() => handleSendEmail(status.latestProforma!.id)}
+                disabled={!smtpStatus?.isConfigured}
+              >
+                <div className="flex items-center gap-2">
+                  <Mail className="h-4 w-4 text-blue-600" />
+                  <span className="font-medium">Envoyer par email</span>
+                </div>
+                <span className="text-xs text-muted-foreground text-left">
+                  {smtpStatus?.isConfigured 
+                    ? "Envoyer la dernière proforma"
+                    : "Configuration SMTP requise"
+                  }
+                </span>
+              </Button>
+            )}
 
             {/* Mettre à jour montant */}
             {status.latestProforma && status.needsUpdate && (
@@ -501,6 +580,10 @@ export function ProformaManagement({ projectId, onProformaUpdated }: ProformaMan
                         <DropdownMenuItem onClick={() => openEditDialog(proforma)}>
                           <Edit className="mr-2 h-4 w-4" />
                           Modifier
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleSendEmail(proforma.id)}>
+                          <Send className="mr-2 h-4 w-4" />
+                          Envoyer par email
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => openPartialConversionDialog(proforma.id)}>
                           <ArrowRight className="mr-2 h-4 w-4" />
@@ -724,6 +807,19 @@ export function ProformaManagement({ projectId, onProformaUpdated }: ProformaMan
           }}
         />
       )}
+
+      {/* Dialog d'envoi d'email */}
+      <EmailPreviewDialog
+        open={isEmailDialogOpen}
+        onOpenChange={setIsEmailDialogOpen}
+        invoiceId={selectedProformaForEmail}
+        invoiceType="PROFORMA"
+        onEmailSent={() => {
+          toast.success('Email envoyé avec succès !')
+          fetchStatus()
+          onProformaUpdated?.()
+        }}
+      />
     </div>
   )
 } 

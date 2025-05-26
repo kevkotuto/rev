@@ -41,7 +41,14 @@ export async function GET(request: NextRequest) {
     }
 
     if (status && status !== 'all') {
-      where.status = status
+      // Si le statut contient des virgules, c'est une liste de statuts
+      if (status.includes(',')) {
+        where.status = {
+          in: status.split(',').map(s => s.trim())
+        }
+      } else {
+        where.status = status
+      }
     }
 
     if (priority && priority !== 'all') {

@@ -1,13 +1,13 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, Suspense } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { XCircle, ArrowLeft, RefreshCw, Home } from "lucide-react"
 import { motion } from "motion/react"
 
-export default function PaymentCancelPage() {
+function PaymentCancelContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const [invoice, setInvoice] = useState<any>(null)
@@ -173,5 +173,17 @@ export default function PaymentCancelPage() {
         </Card>
       </motion.div>
     </div>
+  )
+}
+
+export default function PaymentCancelPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-red-500"></div>
+      </div>
+    }>
+      <PaymentCancelContent />
+    </Suspense>
   )
 } 

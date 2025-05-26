@@ -59,11 +59,7 @@ const data = {
         {
           title: "Tous les clients",
           url: "/clients",
-        },
-        {
-          title: "Nouveau client",
-          url: "/clients/new",
-        },
+        }
       ],
     },
     {
@@ -74,10 +70,6 @@ const data = {
         {
           title: "Tous les projets",
           url: "/projects",
-        },
-        {
-          title: "Nouveau projet",
-          url: "/projects/new",
         },
         {
           title: "Tâches",
@@ -93,11 +85,7 @@ const data = {
         {
           title: "Tous les prestataires",
           url: "/providers",
-        },
-        {
-          title: "Nouveau prestataire",
-          url: "/providers/new",
-        },
+        }
       ],
     },
     {
@@ -112,11 +100,7 @@ const data = {
         {
           title: "Proformas",
           url: "/proformas",
-        },
-        {
-          title: "Nouvelle facture",
-          url: "/invoices/new",
-        },
+        }
       ],
     },
     {

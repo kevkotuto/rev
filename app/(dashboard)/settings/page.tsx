@@ -48,6 +48,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [errors, setErrors] = useState<Record<string, string>>({})
   const [settings, setSettings] = useState<CompanySettings>({
     name: "",
     description: "",
@@ -88,7 +89,113 @@ export default function SettingsPage() {
     }
   }
 
+  const validateField = (field: string, value: string) => {
+    const newErrors = { ...errors }
+    
+    switch (field) {
+      case 'name':
+        if (!value.trim()) {
+          newErrors.name = 'Le nom de l\'entreprise est requis'
+        } else {
+          delete newErrors.name
+        }
+        break
+      case 'address':
+        if (!value.trim()) {
+          newErrors.address = 'L\'adresse est requise'
+        } else {
+          delete newErrors.address
+        }
+        break
+      case 'city':
+        if (!value.trim()) {
+          newErrors.city = 'La ville est requise'
+        } else {
+          delete newErrors.city
+        }
+        break
+      case 'phone':
+        if (!value.trim()) {
+          newErrors.phone = 'Le téléphone est requis'
+        } else {
+          delete newErrors.phone
+        }
+        break
+      case 'email':
+        if (!value.trim()) {
+          newErrors.email = 'L\'email est requis'
+        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+          newErrors.email = 'Email invalide'
+        } else {
+          delete newErrors.email
+        }
+        break
+      case 'website':
+        if (value.trim() && !/^https?:\/\/.+/.test(value)) {
+          newErrors.website = 'URL invalide (doit commencer par http:// ou https://)'
+        } else {
+          delete newErrors.website
+        }
+        break
+    }
+    
+    setErrors(newErrors)
+  }
+
+  const handleFieldChange = (field: string, value: string) => {
+    setSettings(prev => ({ ...prev, [field]: value }))
+    validateField(field, value)
+  }
+
+  const hasErrors = () => {
+    return Object.keys(errors).length > 0
+  }
+
   const handleSave = async () => {
+    // Valider tous les champs requis
+    const requiredFields = ['name', 'address', 'city', 'phone', 'email']
+    const newErrors: Record<string, string> = {}
+    
+    requiredFields.forEach(field => {
+      const value = settings[field as keyof CompanySettings] as string
+      if (!value?.trim()) {
+        switch (field) {
+          case 'name':
+            newErrors.name = 'Le nom de l\'entreprise est requis'
+            break
+          case 'address':
+            newErrors.address = 'L\'adresse est requise'
+            break
+          case 'city':
+            newErrors.city = 'La ville est requise'
+            break
+          case 'phone':
+            newErrors.phone = 'Le téléphone est requis'
+            break
+          case 'email':
+            newErrors.email = 'L\'email est requis'
+            break
+        }
+      }
+    })
+
+    // Valider l'email
+    if (settings.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(settings.email)) {
+      newErrors.email = 'Email invalide'
+    }
+
+    // Valider le site web
+    if (settings.website && settings.website.trim() && !/^https?:\/\/.+/.test(settings.website)) {
+      newErrors.website = 'URL invalide (doit commencer par http:// ou https://)'
+    }
+
+    setErrors(newErrors)
+
+    if (Object.keys(newErrors).length > 0) {
+      toast.error('Veuillez corriger les erreurs avant de sauvegarder')
+      return
+    }
+
     setSaving(true)
     try {
       const response = await fetch('/api/settings/company', {
@@ -99,8 +206,10 @@ export default function SettingsPage() {
 
       if (response.ok) {
         toast.success('Paramètres sauvegardés avec succès')
+        setErrors({})
       } else {
-        toast.error('Erreur lors de la sauvegarde')
+        const errorData = await response.json()
+        toast.error(errorData.message || 'Erreur lors de la sauvegarde')
       }
     } catch (error) {
       console.error('Erreur:', error)
@@ -157,8 +266,20 @@ export default function SettingsPage() {
           <p className="text-muted-foreground">
             Configurez les informations de votre entreprise
           </p>
+          {hasErrors() && (
+            <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-sm text-red-700 font-medium">
+                ⚠️ {Object.keys(errors).length} erreur(s) à corriger :
+              </p>
+              <ul className="text-xs text-red-600 mt-1 list-disc list-inside">
+                {Object.entries(errors).map(([field, error]) => (
+                  <li key={field}>{error}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
-        <Button onClick={handleSave} disabled={saving}>
+        <Button onClick={handleSave} disabled={saving || hasErrors()}>
           <Save className="mr-2 h-4 w-4" />
           {saving ? 'Sauvegarde...' : 'Sauvegarder'}
         </Button>
@@ -234,9 +355,13 @@ export default function SettingsPage() {
                 <Input
                   id="name"
                   value={settings.name}
-                  onChange={(e) => setSettings(prev => ({ ...prev, name: e.target.value }))}
+                  onChange={(e) => handleFieldChange('name', e.target.value)}
                   placeholder="Nom de votre entreprise"
+                  className={errors.name ? 'border-red-500' : ''}
                 />
+                {errors.name && (
+                  <p className="text-sm text-red-500">{errors.name}</p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -295,9 +420,13 @@ export default function SettingsPage() {
                 <Textarea
                   id="address"
                   value={settings.address}
-                  onChange={(e) => setSettings(prev => ({ ...prev, address: e.target.value }))}
+                  onChange={(e) => handleFieldChange('address', e.target.value)}
                   placeholder="Adresse complète"
+                  className={errors.address ? 'border-red-500' : ''}
                 />
+                {errors.address && (
+                  <p className="text-sm text-red-500">{errors.address}</p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -306,9 +435,13 @@ export default function SettingsPage() {
                   <Input
                     id="city"
                     value={settings.city}
-                    onChange={(e) => setSettings(prev => ({ ...prev, city: e.target.value }))}
+                    onChange={(e) => handleFieldChange('city', e.target.value)}
                     placeholder="Abidjan"
+                    className={errors.city ? 'border-red-500' : ''}
                   />
+                  {errors.city && (
+                    <p className="text-sm text-red-500">{errors.city}</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="postalCode">Code postal</Label>
@@ -356,9 +489,13 @@ export default function SettingsPage() {
                 <Input
                   id="phone"
                   value={settings.phone}
-                  onChange={(e) => setSettings(prev => ({ ...prev, phone: e.target.value }))}
+                  onChange={(e) => handleFieldChange('phone', e.target.value)}
                   placeholder="+225 XX XX XX XX"
+                  className={errors.phone ? 'border-red-500' : ''}
                 />
+                {errors.phone && (
+                  <p className="text-sm text-red-500">{errors.phone}</p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -367,9 +504,13 @@ export default function SettingsPage() {
                   id="email"
                   type="email"
                   value={settings.email}
-                  onChange={(e) => setSettings(prev => ({ ...prev, email: e.target.value }))}
+                  onChange={(e) => handleFieldChange('email', e.target.value)}
                   placeholder="contact@entreprise.com"
+                  className={errors.email ? 'border-red-500' : ''}
                 />
+                {errors.email && (
+                  <p className="text-sm text-red-500">{errors.email}</p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -377,9 +518,16 @@ export default function SettingsPage() {
                 <Input
                   id="website"
                   value={settings.website}
-                  onChange={(e) => setSettings(prev => ({ ...prev, website: e.target.value }))}
+                  onChange={(e) => handleFieldChange('website', e.target.value)}
                   placeholder="https://www.entreprise.com"
+                  className={errors.website ? 'border-red-500' : ''}
                 />
+                {errors.website && (
+                  <p className="text-sm text-red-500">{errors.website}</p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Optionnel. Doit commencer par http:// ou https://
+                </p>
               </div>
             </CardContent>
           </Card>

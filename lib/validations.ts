@@ -19,13 +19,21 @@ export const signUpSchema = z.object({
 // Client schemas
 export const clientSchema = z.object({
   name: z.string().min(1, "Le nom est requis"),
-  email: z.string().email("Email invalide").optional().or(z.literal("")),
-  phone: z.string().optional(),
-  address: z.string().optional(),
-  company: z.string().optional(),
-  notes: z.string().optional(),
-  photo: z.string().optional(),
-})
+  email: z.string().email("Email invalide").optional().or(z.literal("")).or(z.undefined()),
+  phone: z.string().optional().or(z.literal("")),
+  address: z.string().optional().or(z.literal("")),
+  company: z.string().optional().or(z.literal("")),
+  notes: z.string().optional().or(z.literal("")),
+  photo: z.string().optional().or(z.literal("")),
+}).transform((data) => ({
+  ...data,
+  email: data.email === "" ? undefined : data.email,
+  phone: data.phone === "" ? undefined : data.phone,
+  address: data.address === "" ? undefined : data.address,
+  company: data.company === "" ? undefined : data.company,
+  notes: data.notes === "" ? undefined : data.notes,
+  photo: data.photo === "" ? undefined : data.photo,
+}))
 
 // Project schemas
 export const projectSchema = z.object({

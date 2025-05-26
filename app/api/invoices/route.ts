@@ -22,13 +22,13 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status')
     const type = searchParams.get('type')
 
-    const where: { userId: string; projectId?: string; status?: string; type?: string } = {
+    const where: any = {
       userId: session.user.id
     }
 
     if (projectId) where.projectId = projectId
-    if (status) where.status = status
-    if (type) where.type = type
+    if (status) where.status = status as any
+    if (type) where.type = type as any
 
     const invoices = await prisma.invoice.findMany({
       where,

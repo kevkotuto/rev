@@ -5,16 +5,16 @@ import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 
 const companySettingsSchema = z.object({
-  name: z.string().min(1, "Le nom de l'entreprise est requis").or(z.literal("")),
+  name: z.string().min(1, "Le nom de l'entreprise est requis"),
   description: z.string().optional(),
   logo: z.string().optional(),
-  address: z.string().min(1, "L'adresse est requise").or(z.literal("")),
-  city: z.string().min(1, "La ville est requise").or(z.literal("")),
+  address: z.string().min(1, "L'adresse est requise"),
+  city: z.string().min(1, "La ville est requise"),
   postalCode: z.string().optional(),
   country: z.string().default("Côte d'Ivoire"),
-  phone: z.string().min(1, "Le téléphone est requis").or(z.literal("")),
-  email: z.string().email("Email invalide").or(z.literal("")),
-  website: z.string().url("URL invalide").optional().or(z.literal("")),
+  phone: z.string().min(1, "Le téléphone est requis"),
+  email: z.string().email("Email invalide"),
+  website: z.string().url("URL invalide").optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
   rccm: z.string().optional(),
   nif: z.string().optional(),
   bankName: z.string().optional(),

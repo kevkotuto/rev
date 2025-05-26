@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { SessionProvider } from "@/components/providers/session-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { AIChatGlobal } from "@/components/ai-chat-global";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -32,6 +33,7 @@ export default function RootLayout({
         <SessionProvider>
           {children}
           <Toaster />
+          <AIChatGlobal />
         </SessionProvider>
       </body>
     </html>

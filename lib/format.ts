@@ -6,9 +6,13 @@ export function formatCurrency(amount: number, currency: string = "FCFA"): strin
     return `${amount.toLocaleString("fr-FR")} FCFA`
   }
   
+  // Mapper FCFA vers XOF pour Intl.NumberFormat
+  const currencyCode = currency === "FCFA" ? "XOF" : currency
+  
   return new Intl.NumberFormat("fr-FR", {
     style: "currency",
-    currency: currency === "EUR" ? "EUR" : "USD",
+    currency: currencyCode === "EUR" ? "EUR" : currencyCode === "USD" ? "USD" : "XOF",
+    minimumFractionDigits: 0,
   }).format(amount)
 }
 

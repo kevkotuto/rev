@@ -17,7 +17,7 @@ import {
 import { motion } from "motion/react"
 import { QuickTaskEditor } from "@/components/quick-task-editor"
 import { AIDashboardInsights } from "@/components/ai-dashboard-insights"
-import { AIChatFloating } from "@/components/ai-chat-floating"
+
 
 interface DashboardStats {
   overview: {
@@ -318,8 +318,6 @@ export default function DashboardPage() {
         </motion.div>
       </div>
 
-      {/* Chat IA flottant */}
-      <AIChatFloating />
     </div>
   )
 } 

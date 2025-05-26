@@ -6,7 +6,7 @@ import { invoiceSchema } from "@/lib/validations"
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -18,9 +18,11 @@ export async function GET(
       )
     }
 
+    const { id } = await params
+
     const invoice = await prisma.invoice.findFirst({
       where: {
-        id: params.id,
+        id,
         userId: session.user.id
       },
       include: {
@@ -52,7 +54,7 @@ export async function GET(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -67,9 +69,11 @@ export async function PUT(
     const body = await request.json()
     const validatedData = invoiceSchema.parse(body)
 
+    const { id } = await params
+
     const invoice = await prisma.invoice.updateMany({
       where: {
-        id: params.id,
+        id,
         userId: session.user.id
       },
       data: validatedData
@@ -83,7 +87,7 @@ export async function PUT(
     }
 
     const updatedInvoice = await prisma.invoice.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         project: {
           include: {
@@ -105,7 +109,7 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -117,9 +121,11 @@ export async function DELETE(
       )
     }
 
+    const { id } = await params
+
     const invoice = await prisma.invoice.deleteMany({
       where: {
-        id: params.id,
+        id,
         userId: session.user.id
       }
     })

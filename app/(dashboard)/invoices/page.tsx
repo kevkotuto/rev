@@ -1,77 +1,91 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { Checkbox } from "@/components/ui/checkbox"
 import { 
   Plus, 
   Search, 
-  MoreHorizontal, 
+  Filter, 
+  Eye, 
   Edit, 
   Trash2, 
-  FileText,
-  Send,
+  Mail, 
+  Download, 
   ExternalLink,
+  FileText,
+  Calendar,
   DollarSign,
-  Filter,
-  Calendar
+  TrendingUp,
+  AlertCircle,
+  CheckCircle,
+  Clock,
+  X,
+  MoreHorizontal,
+  Copy,
+  RefreshCw
 } from "lucide-react"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { motion } from "motion/react"
 import { toast } from "sonner"
+import { formatCurrency, formatDate } from "@/lib/format"
+import { EmailPreviewDialog } from "@/components/email-preview-dialog"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 
 interface Invoice {
   id: string
   invoiceNumber: string
-  type: string
+  type: "INVOICE" | "PROFORMA"
   amount: number
-  status: string
+  status: "PENDING" | "PAID" | "OVERDUE" | "CANCELLED"
   dueDate?: string
-  notes?: string
+  paidDate?: string
   paymentLink?: string
-  waveCheckoutId?: string
+  notes?: string
   clientName?: string
   clientEmail?: string
   clientAddress?: string
   clientPhone?: string
-  createdAt: string
   project?: {
     id: string
     name: string
+    client?: {
+      id: string
+      name: string
+      email?: string
+    }
   }
+  createdAt: string
+  updatedAt: string
+}
+
+interface InvoiceFormData {
+  type: "INVOICE" | "PROFORMA"
+  amount: number
+  dueDate?: string
+  notes?: string
+  clientName?: string
+  clientEmail?: string
+  clientAddress?: string
+  clientPhone?: string
+  projectId?: string
+  generatePaymentLink?: boolean
 }
 
 interface Project {
   id: string
   name: string
+  amount: number
   client?: {
+    id: string
     name: string
-    email: string
+    email?: string
   }
 }
 
@@ -80,21 +94,29 @@ export default function InvoicesPage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
-  const [statusFilter, setStatusFilter] = useState("all")
-  const [typeFilter, setTypeFilter] = useState("all")
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
-  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
-  const [formData, setFormData] = useState({
+  const [statusFilter, setStatusFilter] = useState<string>("all")
+  const [typeFilter, setTypeFilter] = useState<string>("all")
+  const [showCreateDialog, setShowCreateDialog] = useState(false)
+  const [showEditDialog, setShowEditDialog] = useState(false)
+  const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null)
+  const [showEmailDialog, setShowEmailDialog] = useState(false)
+  const [emailInvoiceId, setEmailInvoiceId] = useState<string>("")
+  const [emailInvoiceType, setEmailInvoiceType] = useState<"INVOICE" | "PROFORMA">("INVOICE")
+  const [formData, setFormData] = useState<InvoiceFormData>({
     type: "INVOICE",
-    amount: "",
-    dueDate: "",
-    notes: "",
-    projectId: "",
-    clientName: "",
-    clientEmail: "",
-    clientAddress: "",
-    clientPhone: ""
+    amount: 0,
+    generatePaymentLink: false
+  })
+
+  // Statistiques
+  const [stats, setStats] = useState({
+    total: 0,
+    paid: 0,
+    pending: 0,
+    overdue: 0,
+    totalAmount: 0,
+    paidAmount: 0,
+    pendingAmount: 0
   })
 
   useEffect(() => {
@@ -102,15 +124,21 @@ export default function InvoicesPage() {
     fetchProjects()
   }, [])
 
+  useEffect(() => {
+    calculateStats()
+  }, [invoices])
+
   const fetchInvoices = async () => {
     try {
       const response = await fetch('/api/invoices')
       if (response.ok) {
         const data = await response.json()
         setInvoices(data)
+      } else {
+        toast.error('Erreur lors du chargement des factures')
       }
     } catch (error) {
-      console.error('Erreur lors du chargement des factures:', error)
+      console.error('Erreur:', error)
       toast.error('Erreur lors du chargement des factures')
     } finally {
       setLoading(false)
@@ -129,63 +157,78 @@ export default function InvoicesPage() {
     }
   }
 
+  const calculateStats = () => {
+    const total = invoices.length
+    const paid = invoices.filter(inv => inv.status === 'PAID').length
+    const pending = invoices.filter(inv => inv.status === 'PENDING').length
+    const overdue = invoices.filter(inv => inv.status === 'OVERDUE').length
+    
+    const totalAmount = invoices.reduce((sum, inv) => sum + inv.amount, 0)
+    const paidAmount = invoices.filter(inv => inv.status === 'PAID').reduce((sum, inv) => sum + inv.amount, 0)
+    const pendingAmount = invoices.filter(inv => inv.status === 'PENDING').reduce((sum, inv) => sum + inv.amount, 0)
+
+    setStats({
+      total,
+      paid,
+      pending,
+      overdue,
+      totalAmount,
+      paidAmount,
+      pendingAmount
+    })
+  }
+
   const handleCreateInvoice = async () => {
     try {
-      const invoiceData = {
-        ...formData,
-        amount: parseFloat(formData.amount) || 0,
-        projectId: formData.projectId === "none" ? null : formData.projectId || null,
-        dueDate: formData.dueDate ? new Date(formData.dueDate).toISOString() : null
-      }
-
       const response = await fetch('/api/invoices', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(invoiceData)
+        body: JSON.stringify(formData)
       })
 
       if (response.ok) {
-        toast.success('Facture créée avec succès')
-        setIsCreateDialogOpen(false)
-        resetForm()
-        fetchInvoices()
+        const newInvoice = await response.json()
+        setInvoices([newInvoice, ...invoices])
+        setShowCreateDialog(false)
+        setFormData({
+          type: "INVOICE",
+          amount: 0,
+          generatePaymentLink: false
+        })
+        toast.success(`${formData.type === 'PROFORMA' ? 'Proforma' : 'Facture'} créée avec succès`)
       } else {
-        toast.error('Erreur lors de la création de la facture')
+        const error = await response.json()
+        toast.error(error.message || 'Erreur lors de la création')
       }
     } catch (error) {
       console.error('Erreur:', error)
-      toast.error('Erreur lors de la création de la facture')
+      toast.error('Erreur lors de la création')
     }
   }
 
-  const handleUpdateInvoice = async () => {
-    if (!selectedInvoice) return
+  const handleEditInvoice = async () => {
+    if (!editingInvoice) return
 
     try {
-      const invoiceData = {
-        ...formData,
-        amount: parseFloat(formData.amount) || 0,
-        projectId: formData.projectId === "none" ? null : formData.projectId || null,
-        dueDate: formData.dueDate ? new Date(formData.dueDate).toISOString() : null
-      }
-
-      const response = await fetch(`/api/invoices/${selectedInvoice.id}`, {
+      const response = await fetch(`/api/invoices/${editingInvoice.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(invoiceData)
+        body: JSON.stringify(formData)
       })
 
       if (response.ok) {
+        const updatedInvoice = await response.json()
+        setInvoices(invoices.map(inv => inv.id === editingInvoice.id ? updatedInvoice : inv))
+        setShowEditDialog(false)
+        setEditingInvoice(null)
         toast.success('Facture mise à jour avec succès')
-        setIsEditDialogOpen(false)
-        resetForm()
-        fetchInvoices()
       } else {
-        toast.error('Erreur lors de la mise à jour de la facture')
+        const error = await response.json()
+        toast.error(error.message || 'Erreur lors de la mise à jour')
       }
     } catch (error) {
       console.error('Erreur:', error)
-      toast.error('Erreur lors de la mise à jour de la facture')
+      toast.error('Erreur lors de la mise à jour')
     }
   }
 
@@ -198,510 +241,579 @@ export default function InvoicesPage() {
       })
 
       if (response.ok) {
+        setInvoices(invoices.filter(inv => inv.id !== invoiceId))
         toast.success('Facture supprimée avec succès')
-        fetchInvoices()
       } else {
-        toast.error('Erreur lors de la suppression de la facture')
+        const error = await response.json()
+        toast.error(error.message || 'Erreur lors de la suppression')
       }
     } catch (error) {
       console.error('Erreur:', error)
-      toast.error('Erreur lors de la suppression de la facture')
+      toast.error('Erreur lors de la suppression')
     }
   }
 
-  const handleSendEmail = async (invoiceId: string) => {
+  const handleSendEmail = (invoice: Invoice) => {
+    setEmailInvoiceId(invoice.id)
+    setEmailInvoiceType(invoice.type)
+    setShowEmailDialog(true)
+  }
+
+  const handleDownloadPDF = async (invoice: Invoice) => {
     try {
-      const response = await fetch('/api/emails/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'invoice',
-          invoiceId: invoiceId
-        })
-      })
-
+      const endpoint = invoice.type === 'PROFORMA' 
+        ? `/api/proformas/${invoice.id}/pdf`
+        : `/api/invoices/${invoice.id}/pdf`
+      
+      const response = await fetch(endpoint)
+      
       if (response.ok) {
-        toast.success('Email envoyé avec succès')
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${invoice.type.toLowerCase()}-${invoice.invoiceNumber}.pdf`
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
+        toast.success('PDF téléchargé avec succès')
       } else {
-        toast.error('Erreur lors de l\'envoi de l\'email')
+        toast.error('Erreur lors du téléchargement du PDF')
       }
     } catch (error) {
       console.error('Erreur:', error)
-      toast.error('Erreur lors de l\'envoi de l\'email')
+      toast.error('Erreur lors du téléchargement du PDF')
     }
-  }
-
-  const resetForm = () => {
-    setFormData({
-      type: "INVOICE",
-      amount: "",
-      dueDate: "",
-      notes: "",
-      projectId: "none",
-      clientName: "",
-      clientEmail: "",
-      clientAddress: "",
-      clientPhone: ""
-    })
-    setSelectedInvoice(null)
   }
 
   const openEditDialog = (invoice: Invoice) => {
-    setSelectedInvoice(invoice)
+    setEditingInvoice(invoice)
     setFormData({
       type: invoice.type,
-      amount: invoice.amount.toString(),
-      dueDate: invoice.dueDate ? invoice.dueDate.split('T')[0] : "",
+      amount: invoice.amount,
+      dueDate: invoice.dueDate ? new Date(invoice.dueDate).toISOString().split('T')[0] : undefined,
       notes: invoice.notes || "",
-      projectId: invoice.project?.id || "none",
       clientName: invoice.clientName || "",
       clientEmail: invoice.clientEmail || "",
       clientAddress: invoice.clientAddress || "",
-      clientPhone: invoice.clientPhone || ""
+      clientPhone: invoice.clientPhone || "",
+      projectId: invoice.project?.id || "",
+      generatePaymentLink: !!invoice.paymentLink
     })
-    setIsEditDialogOpen(true)
+    setShowEditDialog(true)
   }
 
   const getStatusBadge = (status: string) => {
-    const statusMap = {
-      'PENDING': { label: 'En attente', variant: 'secondary' as const },
-      'PAID': { label: 'Payé', variant: 'default' as const },
-      'OVERDUE': { label: 'En retard', variant: 'destructive' as const },
-      'CANCELLED': { label: 'Annulé', variant: 'outline' as const },
+    const variants = {
+      PAID: "default",
+      PENDING: "secondary", 
+      OVERDUE: "destructive",
+      CANCELLED: "outline"
+    } as const
+
+    const labels = {
+      PAID: "Payé",
+      PENDING: "En attente",
+      OVERDUE: "En retard", 
+      CANCELLED: "Annulé"
     }
-    
-    return statusMap[status as keyof typeof statusMap] || { label: status, variant: 'outline' as const }
+
+    return (
+      <Badge variant={variants[status as keyof typeof variants] || "outline"}>
+        {labels[status as keyof typeof labels] || status}
+      </Badge>
+    )
   }
 
-  const getTypeBadge = (type: string) => {
-    const typeMap = {
-      'INVOICE': { label: 'Facture', color: 'bg-blue-100 text-blue-800' },
-      'PROFORMA': { label: 'Proforma', color: 'bg-purple-100 text-purple-800' },
-    }
-    
-    return typeMap[type as keyof typeof typeMap] || { label: type, color: 'bg-gray-100 text-gray-800' }
+  const getTypeIcon = (type: string) => {
+    return type === 'PROFORMA' ? (
+      <FileText className="h-4 w-4 text-blue-600" />
+    ) : (
+      <DollarSign className="h-4 w-4 text-green-600" />
+    )
   }
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('fr-FR', {
-      style: 'currency',
-      currency: 'XOF',
-      minimumFractionDigits: 0,
-    }).format(amount)
-  }
-
+  // Filtrer les factures
   const filteredInvoices = invoices.filter(invoice => {
-    const matchesSearch = invoice.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         (invoice.clientName && invoice.clientName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                         (invoice.project && invoice.project.name.toLowerCase().includes(searchTerm.toLowerCase()))
-    
+    const matchesSearch = 
+      invoice.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      invoice.clientName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      invoice.project?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      invoice.project?.client?.name.toLowerCase().includes(searchTerm.toLowerCase())
+
     const matchesStatus = statusFilter === "all" || invoice.status === statusFilter
     const matchesType = typeFilter === "all" || invoice.type === typeFilter
-    
+
     return matchesSearch && matchesStatus && matchesType
   })
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500"></div>
+      <div className="flex items-center justify-center h-64">
+        <div className="flex items-center space-x-2">
+          <RefreshCw className="h-6 w-6 animate-spin" />
+          <span>Chargement des factures...</span>
+        </div>
       </div>
     )
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* En-tête */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Factures</h1>
+          <h1 className="text-3xl font-bold">Factures & Proformas</h1>
           <p className="text-muted-foreground">
-            Gérez vos factures et proformas avec Wave CI
+            Gérez vos factures et proformas, envoyez-les par email avec PDF
           </p>
         </div>
-        <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-          <DialogTrigger asChild>
-            <Button onClick={() => resetForm()}>
-              <Plus className="mr-2 h-4 w-4" />
-              Nouvelle facture
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[600px]">
-            <DialogHeader>
-              <DialogTitle>Nouvelle facture</DialogTitle>
-              <DialogDescription>
-                Créez une nouvelle facture ou proforma.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="type">Type</Label>
-                  <Select value={formData.type} onValueChange={(value) => setFormData({...formData, type: value})}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="INVOICE">Facture</SelectItem>
-                      <SelectItem value="PROFORMA">Proforma</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="amount">Montant (XOF) *</Label>
-                  <Input
-                    id="amount"
-                    type="number"
-                    value={formData.amount}
-                    onChange={(e) => setFormData({...formData, amount: e.target.value})}
-                    placeholder="0"
-                  />
-                </div>
-              </div>
-              
-              <div className="grid gap-2">
-                <Label htmlFor="project">Projet</Label>
-                <Select value={formData.projectId} onValueChange={(value) => setFormData({...formData, projectId: value})}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Sélectionner un projet" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Aucun projet</SelectItem>
-                    {projects.map((project) => (
-                      <SelectItem key={project.id} value={project.id}>
-                        {project.name} {project.client && `(${project.client.name})`}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="clientName">Nom du client *</Label>
-                  <Input
-                    id="clientName"
-                    value={formData.clientName}
-                    onChange={(e) => setFormData({...formData, clientName: e.target.value})}
-                    placeholder="Nom du client"
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="clientEmail">Email du client *</Label>
-                  <Input
-                    id="clientEmail"
-                    type="email"
-                    value={formData.clientEmail}
-                    onChange={(e) => setFormData({...formData, clientEmail: e.target.value})}
-                    placeholder="email@exemple.com"
-                  />
-                </div>
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="clientAddress">Adresse du client</Label>
-                <Textarea
-                  id="clientAddress"
-                  value={formData.clientAddress}
-                  onChange={(e) => setFormData({...formData, clientAddress: e.target.value})}
-                  placeholder="Adresse complète"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="clientPhone">Téléphone du client</Label>
-                  <Input
-                    id="clientPhone"
-                    value={formData.clientPhone}
-                    onChange={(e) => setFormData({...formData, clientPhone: e.target.value})}
-                    placeholder="+33 1 23 45 67 89"
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="dueDate">Date d'échéance</Label>
-                  <Input
-                    id="dueDate"
-                    type="date"
-                    value={formData.dueDate}
-                    onChange={(e) => setFormData({...formData, dueDate: e.target.value})}
-                  />
-                </div>
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="notes">Notes</Label>
-                <Textarea
-                  id="notes"
-                  value={formData.notes}
-                  onChange={(e) => setFormData({...formData, notes: e.target.value})}
-                  placeholder="Notes sur la facture"
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
-                Annuler
-              </Button>
-              <Button onClick={handleCreateInvoice} disabled={!formData.amount || !formData.clientName || !formData.clientEmail}>
-                Créer
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <Button onClick={() => setShowCreateDialog(true)}>
+          <Plus className="mr-2 h-4 w-4" />
+          Nouvelle facture
+        </Button>
       </div>
 
-      {/* Filters */}
-      <div className="flex items-center space-x-4">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Rechercher une facture..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-8"
-          />
-        </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[180px]">
-            <Filter className="mr-2 h-4 w-4" />
-            <SelectValue placeholder="Statut" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Tous les statuts</SelectItem>
-            <SelectItem value="PENDING">En attente</SelectItem>
-            <SelectItem value="PAID">Payé</SelectItem>
-            <SelectItem value="OVERDUE">En retard</SelectItem>
-            <SelectItem value="CANCELLED">Annulé</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={typeFilter} onValueChange={setTypeFilter}>
-          <SelectTrigger className="w-[180px]">
-            <FileText className="mr-2 h-4 w-4" />
-            <SelectValue placeholder="Type" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Tous les types</SelectItem>
-            <SelectItem value="INVOICE">Factures</SelectItem>
-            <SelectItem value="PROFORMA">Proformas</SelectItem>
-          </SelectContent>
-        </Select>
+      {/* Statistiques */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total</CardTitle>
+            <FileText className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.total}</div>
+            <p className="text-xs text-muted-foreground">
+              {formatCurrency(stats.totalAmount)}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Payées</CardTitle>
+            <CheckCircle className="h-4 w-4 text-green-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">{stats.paid}</div>
+            <p className="text-xs text-muted-foreground">
+              {formatCurrency(stats.paidAmount)}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">En attente</CardTitle>
+            <Clock className="h-4 w-4 text-yellow-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-yellow-600">{stats.pending}</div>
+            <p className="text-xs text-muted-foreground">
+              {formatCurrency(stats.pendingAmount)}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">En retard</CardTitle>
+            <AlertCircle className="h-4 w-4 text-red-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-red-600">{stats.overdue}</div>
+            <p className="text-xs text-muted-foreground">
+              Nécessitent une attention
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Invoices Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {filteredInvoices.map((invoice, index) => (
-          <motion.div
-            key={invoice.id}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.1 }}
-          >
-            <Card className="hover:shadow-md transition-shadow">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <div className="flex items-center space-x-2">
-                  <div className="w-8 h-8 bg-gradient-to-br from-orange-500 to-red-500 rounded-full flex items-center justify-center text-white text-sm font-bold">
-                    <FileText className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-base">{invoice.invoiceNumber}</CardTitle>
-                    {invoice.clientName && (
-                      <CardDescription className="text-sm">{invoice.clientName}</CardDescription>
-                    )}
-                  </div>
-                </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" className="h-8 w-8 p-0">
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => openEditDialog(invoice)}>
-                      <Edit className="mr-2 h-4 w-4" />
-                      Modifier
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => handleSendEmail(invoice.id)}>
-                      <Send className="mr-2 h-4 w-4" />
-                      Envoyer par email
-                    </DropdownMenuItem>
-                    {invoice.paymentLink && (
-                      <DropdownMenuItem asChild>
-                        <a href={invoice.paymentLink} target="_blank" rel="noopener noreferrer">
-                          <ExternalLink className="mr-2 h-4 w-4" />
-                          Lien de paiement
-                        </a>
-                      </DropdownMenuItem>
-                    )}
-                    <DropdownMenuItem 
-                      onClick={() => handleDeleteInvoice(invoice.id)}
-                      className="text-red-600"
-                    >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      Supprimer
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Badge variant={getStatusBadge(invoice.status).variant}>
-                      {getStatusBadge(invoice.status).label}
-                    </Badge>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getTypeBadge(invoice.type).color}`}>
-                      {getTypeBadge(invoice.type).label}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center text-lg font-bold">
-                      <DollarSign className="mr-1 h-4 w-4" />
-                      {formatCurrency(invoice.amount)}
-                    </div>
-                    {invoice.paymentLink && (
-                      <Badge variant="outline" className="text-xs">
-                        Wave CI
-                      </Badge>
-                    )}
-                  </div>
-
-                  {invoice.project && (
-                    <div className="text-sm text-muted-foreground">
-                      Projet: {invoice.project.name}
-                    </div>
-                  )}
-
-                  {invoice.dueDate && (
-                    <div className="flex items-center text-sm text-muted-foreground">
-                      <Calendar className="mr-1 h-3 w-3" />
-                      Échéance: {new Date(invoice.dueDate).toLocaleDateString('fr-FR')}
-                    </div>
-                  )}
-
-                  <div className="text-xs text-muted-foreground">
-                    Créé le {new Date(invoice.createdAt).toLocaleDateString('fr-FR')}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        ))}
-      </div>
-
-      {filteredInvoices.length === 0 && (
-        <div className="text-center py-12">
-          <FileText className="mx-auto h-12 w-12 text-muted-foreground" />
-          <h3 className="mt-2 text-sm font-semibold text-gray-900">Aucune facture</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {searchTerm || statusFilter !== "all" || typeFilter !== "all" 
-              ? 'Aucune facture ne correspond à vos filtres.' 
-              : 'Commencez par créer votre première facture.'}
-          </p>
-        </div>
-      )}
-
-      {/* Edit Dialog */}
-      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader>
-            <DialogTitle>Modifier la facture</DialogTitle>
-            <DialogDescription>
-              Modifiez les informations de la facture.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="edit-type">Type</Label>
-                <Select value={formData.type} onValueChange={(value) => setFormData({...formData, type: value})}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="INVOICE">Facture</SelectItem>
-                    <SelectItem value="PROFORMA">Proforma</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="edit-amount">Montant (XOF) *</Label>
+      {/* Filtres et recherche */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Filtres</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1">
+              <div className="relative">
+                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
-                  id="edit-amount"
-                  type="number"
-                  value={formData.amount}
-                  onChange={(e) => setFormData({...formData, amount: e.target.value})}
-                  placeholder="0"
+                  placeholder="Rechercher par numéro, client, projet..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-8"
                 />
               </div>
             </div>
             
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Statut" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous les statuts</SelectItem>
+                <SelectItem value="PENDING">En attente</SelectItem>
+                <SelectItem value="PAID">Payé</SelectItem>
+                <SelectItem value="OVERDUE">En retard</SelectItem>
+                <SelectItem value="CANCELLED">Annulé</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select value={typeFilter} onValueChange={setTypeFilter}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous les types</SelectItem>
+                <SelectItem value="INVOICE">Factures</SelectItem>
+                <SelectItem value="PROFORMA">Proformas</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Liste des factures */}
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            Factures ({filteredInvoices.length})
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {filteredInvoices.length === 0 ? (
+            <div className="text-center py-8">
+              <FileText className="mx-auto h-12 w-12 text-muted-foreground" />
+              <h3 className="mt-2 text-sm font-semibold">Aucune facture</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {searchTerm || statusFilter !== "all" || typeFilter !== "all"
+                  ? "Aucune facture ne correspond aux critères de recherche."
+                  : "Commencez par créer votre première facture."}
+              </p>
+              {(!searchTerm && statusFilter === "all" && typeFilter === "all") && (
+                <Button 
+                  className="mt-4" 
+                  onClick={() => setShowCreateDialog(true)}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Créer une facture
+                </Button>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {filteredInvoices.map((invoice) => (
+                <div
+                  key={invoice.id}
+                  className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
+                >
+                  <div className="flex items-center space-x-4">
+                    {getTypeIcon(invoice.type)}
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <h3 className="font-semibold">{invoice.invoiceNumber}</h3>
+                        {getStatusBadge(invoice.status)}
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        {invoice.clientName || invoice.project?.client?.name || 'Client non défini'}
+                        {invoice.project && (
+                          <span className="ml-2">• {invoice.project.name}</span>
+                        )}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Créé le {formatDate(invoice.createdAt)}
+                        {invoice.dueDate && (
+                          <span className="ml-2">• Échéance: {formatDate(invoice.dueDate)}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <div className="text-right">
+                      <div className="font-semibold">{formatCurrency(invoice.amount)}</div>
+                      {invoice.paymentLink && (
+                        <div className="text-xs text-blue-600">Lien de paiement</div>
+                      )}
+                    </div>
+
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => handleSendEmail(invoice)}>
+                          <Mail className="mr-2 h-4 w-4" />
+                          Envoyer par email
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleDownloadPDF(invoice)}>
+                          <Download className="mr-2 h-4 w-4" />
+                          Télécharger PDF
+                        </DropdownMenuItem>
+                        {invoice.paymentLink && (
+                          <DropdownMenuItem onClick={() => window.open(invoice.paymentLink, '_blank')}>
+                            <ExternalLink className="mr-2 h-4 w-4" />
+                            Lien de paiement
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => openEditDialog(invoice)}>
+                          <Edit className="mr-2 h-4 w-4" />
+                          Modifier
+                        </DropdownMenuItem>
+                        <DropdownMenuItem 
+                          onClick={() => handleDeleteInvoice(invoice.id)}
+                          className="text-red-600"
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Supprimer
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Dialog de création */}
+      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Créer une nouvelle facture</DialogTitle>
+            <DialogDescription>
+              Créez une facture ou une proforma pour vos clients
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-4">
             <div className="grid gap-2">
-              <Label htmlFor="edit-project">Projet</Label>
-              <Select value={formData.projectId} onValueChange={(value) => setFormData({...formData, projectId: value})}>
+              <Label htmlFor="type">Type</Label>
+              <Select 
+                value={formData.type} 
+                onValueChange={(value: "INVOICE" | "PROFORMA") => 
+                  setFormData({...formData, type: value})
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="INVOICE">Facture</SelectItem>
+                  <SelectItem value="PROFORMA">Proforma</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="project">Projet (optionnel)</Label>
+              <Select 
+                value={formData.projectId || ""} 
+                onValueChange={(value) => {
+                  const project = projects.find(p => p.id === value)
+                  setFormData({
+                    ...formData, 
+                    projectId: value || undefined,
+                    amount: project ? project.amount : formData.amount,
+                    clientName: project?.client?.name || formData.clientName,
+                    clientEmail: project?.client?.email || formData.clientEmail
+                  })
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Sélectionner un projet" />
                 </SelectTrigger>
-                                  <SelectContent>
-                    <SelectItem value="none">Aucun projet</SelectItem>
-                    {projects.map((project) => (
-                      <SelectItem key={project.id} value={project.id}>
-                        {project.name} {project.client && `(${project.client.name})`}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
+                <SelectContent>
+                  <SelectItem value="">Aucun projet</SelectItem>
+                  {projects.map((project) => (
+                    <SelectItem key={project.id} value={project.id}>
+                      {project.name} - {formatCurrency(project.amount)}
+                      {project.client && ` (${project.client.name})`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
-                <Label htmlFor="edit-clientName">Nom du client *</Label>
+                <Label htmlFor="amount">Montant</Label>
                 <Input
-                  id="edit-clientName"
-                  value={formData.clientName}
+                  id="amount"
+                  type="number"
+                  value={formData.amount}
+                  onChange={(e) => setFormData({...formData, amount: parseFloat(e.target.value) || 0})}
+                  placeholder="0"
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="dueDate">Date d'échéance</Label>
+                <Input
+                  id="dueDate"
+                  type="date"
+                  value={formData.dueDate || ""}
+                  onChange={(e) => setFormData({...formData, dueDate: e.target.value})}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="clientName">Nom du client</Label>
+                <Input
+                  id="clientName"
+                  value={formData.clientName || ""}
                   onChange={(e) => setFormData({...formData, clientName: e.target.value})}
                   placeholder="Nom du client"
                 />
               </div>
+
               <div className="grid gap-2">
-                <Label htmlFor="edit-clientEmail">Email du client *</Label>
+                <Label htmlFor="clientEmail">Email du client</Label>
                 <Input
-                  id="edit-clientEmail"
+                  id="clientEmail"
                   type="email"
-                  value={formData.clientEmail}
+                  value={formData.clientEmail || ""}
                   onChange={(e) => setFormData({...formData, clientEmail: e.target.value})}
-                  placeholder="email@exemple.com"
+                  placeholder="email@client.com"
                 />
               </div>
             </div>
 
             <div className="grid gap-2">
-              <Label htmlFor="edit-clientAddress">Adresse du client</Label>
-              <Textarea
-                id="edit-clientAddress"
-                value={formData.clientAddress}
+              <Label htmlFor="clientAddress">Adresse du client</Label>
+              <Input
+                id="clientAddress"
+                value={formData.clientAddress || ""}
                 onChange={(e) => setFormData({...formData, clientAddress: e.target.value})}
                 placeholder="Adresse complète"
               />
             </div>
 
+            <div className="grid gap-2">
+              <Label htmlFor="clientPhone">Téléphone du client</Label>
+              <Input
+                id="clientPhone"
+                value={formData.clientPhone || ""}
+                onChange={(e) => setFormData({...formData, clientPhone: e.target.value})}
+                placeholder="+225 XX XX XX XX"
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="notes">Notes</Label>
+              <Textarea
+                id="notes"
+                value={formData.notes || ""}
+                onChange={(e) => setFormData({...formData, notes: e.target.value})}
+                placeholder="Notes additionnelles..."
+                rows={3}
+              />
+            </div>
+
+            {formData.type === "INVOICE" && (
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="generatePaymentLink"
+                  checked={formData.generatePaymentLink}
+                  onCheckedChange={(checked) => 
+                    setFormData({...formData, generatePaymentLink: checked as boolean})
+                  }
+                />
+                <Label htmlFor="generatePaymentLink">
+                  Générer un lien de paiement Wave
+                </Label>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
+              Annuler
+            </Button>
+            <Button onClick={handleCreateInvoice}>
+              Créer la {formData.type === 'PROFORMA' ? 'proforma' : 'facture'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog de modification */}
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Modifier la facture</DialogTitle>
+            <DialogDescription>
+              Modifiez les informations de la facture
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="edit-type">Type</Label>
+              <Select 
+                value={formData.type} 
+                onValueChange={(value: "INVOICE" | "PROFORMA") => 
+                  setFormData({...formData, type: value})
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="INVOICE">Facture</SelectItem>
+                  <SelectItem value="PROFORMA">Proforma</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
-                <Label htmlFor="edit-clientPhone">Téléphone du client</Label>
+                <Label htmlFor="edit-amount">Montant</Label>
                 <Input
-                  id="edit-clientPhone"
-                  value={formData.clientPhone}
-                  onChange={(e) => setFormData({...formData, clientPhone: e.target.value})}
-                  placeholder="+33 1 23 45 67 89"
+                  id="edit-amount"
+                  type="number"
+                  value={formData.amount}
+                  onChange={(e) => setFormData({...formData, amount: parseFloat(e.target.value) || 0})}
                 />
               </div>
+
               <div className="grid gap-2">
                 <Label htmlFor="edit-dueDate">Date d'échéance</Label>
                 <Input
                   id="edit-dueDate"
                   type="date"
-                  value={formData.dueDate}
+                  value={formData.dueDate || ""}
                   onChange={(e) => setFormData({...formData, dueDate: e.target.value})}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="edit-clientName">Nom du client</Label>
+                <Input
+                  id="edit-clientName"
+                  value={formData.clientName || ""}
+                  onChange={(e) => setFormData({...formData, clientName: e.target.value})}
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="edit-clientEmail">Email du client</Label>
+                <Input
+                  id="edit-clientEmail"
+                  type="email"
+                  value={formData.clientEmail || ""}
+                  onChange={(e) => setFormData({...formData, clientEmail: e.target.value})}
                 />
               </div>
             </div>
@@ -710,22 +822,35 @@ export default function InvoicesPage() {
               <Label htmlFor="edit-notes">Notes</Label>
               <Textarea
                 id="edit-notes"
-                value={formData.notes}
+                value={formData.notes || ""}
                 onChange={(e) => setFormData({...formData, notes: e.target.value})}
-                placeholder="Notes sur la facture"
+                rows={3}
               />
             </div>
           </div>
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setShowEditDialog(false)}>
               Annuler
             </Button>
-            <Button onClick={handleUpdateInvoice} disabled={!formData.amount || !formData.clientName || !formData.clientEmail}>
+            <Button onClick={handleEditInvoice}>
               Sauvegarder
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Dialog d'envoi d'email */}
+      <EmailPreviewDialog
+        open={showEmailDialog}
+        onOpenChange={setShowEmailDialog}
+        invoiceId={emailInvoiceId}
+        invoiceType={emailInvoiceType}
+        onEmailSent={() => {
+          setShowEmailDialog(false)
+          toast.success('Email envoyé avec succès !')
+        }}
+      />
     </div>
   )
-} 
+}

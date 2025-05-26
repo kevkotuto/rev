@@ -15,7 +15,8 @@ import {
   Clock,
   AlertTriangle,
   Filter,
-  FolderOpen
+  FolderOpen,
+  Move
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -87,6 +88,7 @@ export default function TasksPage() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+  const [draggedTask, setDraggedTask] = useState<Task | null>(null)
   const [formData, setFormData] = useState({
     title: "",
     description: "",
@@ -281,6 +283,53 @@ export default function TasksPage() {
     return filteredTasks.filter(task => task.status === status)
   }
 
+  // Fonctions de drag and drop
+  const handleDragStart = (task: Task, e: React.DragEvent) => {
+    setDraggedTask(task)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', task.id)
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+  }
+
+  const handleDrop = async (targetStatus: string, e: React.DragEvent) => {
+    e.preventDefault()
+    if (!draggedTask || draggedTask.status === targetStatus) {
+      setDraggedTask(null)
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/tasks/${draggedTask.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: targetStatus })
+      })
+
+      if (response.ok) {
+        // Mettre à jour la tâche localement
+        setTasks(prev => prev.map(task => 
+          task.id === draggedTask.id 
+            ? { ...task, status: targetStatus }
+            : task
+        ))
+        toast.success(`Tâche déplacée vers "${statusColumns.find(col => col.id === targetStatus)?.label}"`)
+      } else {
+        toast.error('Erreur lors du déplacement de la tâche')
+      }
+    } catch (error) {
+      console.error('Erreur:', error)
+      toast.error('Erreur lors du déplacement de la tâche')
+    }
+
+    setDraggedTask(null)
+  }
+
+
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -453,21 +502,43 @@ export default function TasksPage() {
               </h3>
             </div>
             
-            <div className="space-y-3 min-h-[400px]">
+            <div 
+              className={`space-y-3 min-h-[400px] p-2 rounded-lg border-2 border-dashed transition-colors ${
+                draggedTask && draggedTask.status !== column.id 
+                  ? 'border-blue-400 bg-blue-50' 
+                  : 'border-transparent'
+              }`}
+              onDragOver={handleDragOver}
+              onDrop={(e) => handleDrop(column.id, e)}
+            >
               {getTasksByStatus(column.id).map((task, index) => (
-                <motion.div
-                  key={task.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.1 }}
-                >
-                  <Card className="hover:shadow-md transition-shadow cursor-pointer">
+                                                    <motion.div
+                    key={task.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.1 }}
+                    className={`${draggedTask?.id === task.id ? 'opacity-50' : ''}`}
+                  >
+                                      <Card 
+                    className={`hover:shadow-md transition-all cursor-move group relative ${
+                      draggedTask?.id === task.id ? 'shadow-lg scale-105' : ''
+                    }`}
+                    draggable
+                    onDragStart={(e) => handleDragStart(task, e)}
+                  >
                     <CardHeader className="pb-2">
                       <div className="flex items-center justify-between">
-                        <CardTitle className="text-sm font-medium">{task.title}</CardTitle>
+                        <div className="flex items-center space-x-2 min-w-0">
+                          <Move className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                          <CardTitle className="text-sm font-medium truncate">{task.title}</CardTitle>
+                        </div>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" className="h-6 w-6 p-0">
+                            <Button 
+                              variant="ghost" 
+                              className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={(e) => e.stopPropagation()}
+                            >
                               <MoreHorizontal className="h-3 w-3" />
                             </Button>
                           </DropdownMenuTrigger>
@@ -478,6 +549,7 @@ export default function TasksPage() {
                                 onClick={() => handleStatusChange(task.id, status.id)}
                                 disabled={task.status === status.id}
                               >
+                                <Move className="mr-2 h-3 w-3" />
                                 Déplacer vers {status.label}
                               </DropdownMenuItem>
                             ))}
@@ -497,7 +569,7 @@ export default function TasksPage() {
                       </div>
                       {task.project && (
                         <CardDescription className="text-xs">
-                          {task.project.name}
+                          📁 {task.project.name}
                         </CardDescription>
                       )}
                     </CardHeader>
@@ -533,9 +605,30 @@ export default function TasksPage() {
                         </div>
                       )}
                     </CardContent>
+                    
+                    {/* Indicateur de drag */}
+                    <div className="absolute inset-0 bg-blue-500/10 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
                   </Card>
                 </motion.div>
               ))}
+              
+              {/* Zone de drop vide */}
+              {getTasksByStatus(column.id).length === 0 && (
+                <div className={`flex items-center justify-center h-32 border-2 border-dashed rounded-lg transition-colors ${
+                  draggedTask && draggedTask.status !== column.id
+                    ? 'border-blue-400 bg-blue-50 text-blue-600'
+                    : 'border-gray-200 text-muted-foreground'
+                }`}>
+                  <div className="text-center">
+                    <Move className="mx-auto h-6 w-6 mb-2" />
+                    <p className="text-sm">
+                      {draggedTask && draggedTask.status !== column.id 
+                        ? 'Déposer la tâche ici' 
+                        : 'Aucune tâche'}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         ))}

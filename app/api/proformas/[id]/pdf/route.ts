@@ -29,7 +29,8 @@ export async function GET(
       include: {
         project: {
           include: {
-            client: true
+            client: true,
+            services: true
           }
         }
       }
@@ -42,13 +43,18 @@ export async function GET(
       )
     }
 
-    // Récupérer les informations de l'utilisateur
-    const user = await prisma.user.findUnique({
-      where: { id: session.user.id }
-    })
+    // Récupérer les informations de l'entreprise et de l'utilisateur
+    const [user, companySettings] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: session.user.id }
+      }),
+      prisma.companySettings.findUnique({
+        where: { userId: session.user.id }
+      })
+    ])
 
     // Générer le HTML du proforma
-    const html = generateProformaHTML(proforma, user)
+    const html = generateProformaHTML(proforma, user, companySettings)
 
     // Générer le PDF avec Puppeteer
     const browser = await puppeteer.launch({
@@ -89,7 +95,7 @@ export async function GET(
   }
 }
 
-function generateProformaHTML(proforma: any, user: any) {
+function generateProformaHTML(proforma: any, user: any, companySettings: any) {
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('fr-FR', {
       style: 'currency',
@@ -101,6 +107,24 @@ function generateProformaHTML(proforma: any, user: any) {
   const formatDate = (date: string | Date) => {
     return new Date(date).toLocaleDateString('fr-FR')
   }
+
+  // Calculer la date d'expiration basée sur la date d'échéance ou 30 jours par défaut
+  const getValidityText = () => {
+    if (proforma.dueDate) {
+      return `Ce devis est valable jusqu'au ${formatDate(proforma.dueDate)}.`
+    } else {
+      const validityDate = new Date(proforma.createdAt)
+      validityDate.setDate(validityDate.getDate() + 30)
+      return `Ce devis est valable jusqu'au ${formatDate(validityDate)} (30 jours à compter de la date d'émission).`
+    }
+  }
+
+  // Informations de l'entreprise (priorité aux paramètres d'entreprise)
+  const companyName = companySettings?.name || user?.companyName || user?.name || 'Mon Entreprise'
+  const companyAddress = companySettings?.address || user?.address
+  const companyPhone = companySettings?.phone || user?.phone
+  const companyEmail = companySettings?.email || user?.email
+  const companyLogo = companySettings?.logo || user?.companyLogo
 
   return `
     <!DOCTYPE html>
@@ -117,16 +141,16 @@ function generateProformaHTML(proforma: any, user: any) {
         }
         
         body {
-          font-family: 'Arial', sans-serif;
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
           line-height: 1.6;
           color: #333;
           background: white;
         }
         
-        .container {
+        .document-container {
           max-width: 800px;
           margin: 0 auto;
-          padding: 20px;
+          padding: 40px;
         }
         
         .header {
@@ -138,7 +162,17 @@ function generateProformaHTML(proforma: any, user: any) {
           padding-bottom: 20px;
         }
         
-        .company-info h1 {
+        .company-info {
+          flex: 1;
+        }
+        
+        .company-logo {
+          max-width: 150px;
+          max-height: 80px;
+          margin-bottom: 15px;
+        }
+        
+        .company-info h2 {
           color: #3b82f6;
           font-size: 28px;
           margin-bottom: 10px;
@@ -149,11 +183,17 @@ function generateProformaHTML(proforma: any, user: any) {
           color: #666;
         }
         
-        .proforma-info {
-          text-align: right;
+        .company-details {
+          margin-top: 10px;
+          font-size: 14px;
         }
         
-        .proforma-info h2 {
+        .proforma-info {
+          text-align: right;
+          flex-shrink: 0;
+        }
+        
+        .proforma-info h3 {
           color: #3b82f6;
           font-size: 24px;
           margin-bottom: 10px;
@@ -167,7 +207,7 @@ function generateProformaHTML(proforma: any, user: any) {
           margin: 40px 0;
         }
         
-        .client-section h3 {
+        .client-section h4 {
           color: #3b82f6;
           margin-bottom: 15px;
           font-size: 18px;
@@ -188,13 +228,15 @@ function generateProformaHTML(proforma: any, user: any) {
           width: 100%;
           border-collapse: collapse;
           margin: 20px 0;
+          border-radius: 8px;
+          overflow: hidden;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         }
         
         .details-table th,
         .details-table td {
           padding: 15px;
           text-align: left;
-          border-bottom: 1px solid #e2e8f0;
         }
         
         .details-table th {
@@ -203,8 +245,21 @@ function generateProformaHTML(proforma: any, user: any) {
           font-weight: 600;
         }
         
-        .details-table tr:hover {
-          background: #f8fafc;
+        .details-table td {
+          background: white;
+          border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .details-table tr:last-child td {
+          border-bottom: none;
+        }
+        
+        .service-row {
+          border-bottom: 1px solid #f1f5f9;
+        }
+        
+        .service-row:last-child {
+          border-bottom: 2px solid #3b82f6;
         }
         
         .total-section {
@@ -216,14 +271,20 @@ function generateProformaHTML(proforma: any, user: any) {
           display: inline-block;
           background: #3b82f6;
           color: white;
-          padding: 20px;
-          border-radius: 8px;
-          min-width: 250px;
+          padding: 25px;
+          border-radius: 12px;
+          min-width: 280px;
         }
         
-        .total-box h3 {
-          font-size: 24px;
+        .total-box h4 {
+          font-size: 18px;
           margin-bottom: 10px;
+          opacity: 0.9;
+        }
+        
+        .total-box .amount {
+          font-size: 32px;
+          font-weight: bold;
         }
         
         .notes-section {
@@ -231,41 +292,66 @@ function generateProformaHTML(proforma: any, user: any) {
           padding: 20px;
           background: #f8fafc;
           border-radius: 8px;
+          border-left: 4px solid #10b981;
         }
         
-        .notes-section h3 {
-          color: #3b82f6;
+        .notes-section h4 {
+          color: #10b981;
           margin-bottom: 15px;
         }
         
         .footer {
           margin-top: 60px;
-          padding-top: 20px;
-          border-top: 1px solid #e2e8f0;
+          padding: 20px;
+          background: #f8fafc;
+          border-radius: 8px;
+          border-top: 3px solid #3b82f6;
           text-align: center;
           color: #666;
           font-size: 14px;
         }
         
+        .footer .validity {
+          font-weight: 600;
+          color: #3b82f6;
+          margin-bottom: 10px;
+        }
+        
+        .footer .company-footer {
+          margin-top: 15px;
+          padding-top: 15px;
+          border-top: 1px solid #e2e8f0;
+          font-size: 12px;
+        }
+        
         @media print {
-          .container {
+          .document-container {
             padding: 0;
           }
         }
       </style>
     </head>
     <body>
-      <div class="container">
+      <div class="document-container">
         <!-- En-tête -->
         <div class="header">
           <div class="company-info">
-            <h1>${user?.companyName || user?.name || 'Mon Entreprise'}</h1>
-            ${user?.address ? `<p>${user.address}</p>` : ''}
-            ${user?.phone ? `<p>Tél: ${user.phone}</p>` : ''}
-            ${user?.email ? `<p>Email: ${user.email}</p>` : ''}
+            ${companyLogo ? `<img src="${companyLogo}" alt="Logo" class="company-logo">` : ''}
+            <h2>${companyName}</h2>
+            ${companyAddress ? `<p>📍 ${companyAddress}</p>` : ''}
+            ${companyPhone ? `<p>📞 ${companyPhone}</p>` : ''}
+            ${companyEmail ? `<p>📧 ${companyEmail}</p>` : ''}
+            
+            ${companySettings ? `
+              <div class="company-details">
+                ${companySettings.rccm ? `<p><strong>RCCM:</strong> ${companySettings.rccm}</p>` : ''}
+                ${companySettings.nif ? `<p><strong>NIF:</strong> ${companySettings.nif}</p>` : ''}
+                ${companySettings.website ? `<p><strong>Site web:</strong> ${companySettings.website}</p>` : ''}
+              </div>
+            ` : ''}
           </div>
           <div class="proforma-info">
-            <h2>PROFORMA</h2>
+            <h3>PROFORMA</h3>
             <p><strong>N°:</strong> ${proforma.invoiceNumber}</p>
             <p><strong>Date:</strong> ${formatDate(proforma.createdAt)}</p>
             ${proforma.dueDate ? `<p><strong>Échéance:</strong> ${formatDate(proforma.dueDate)}</p>` : ''}
@@ -274,16 +360,16 @@ function generateProformaHTML(proforma: any, user: any) {
         
         <!-- Informations client -->
         <div class="client-section">
-          <h3>Facturé à :</h3>
+          <h4>Facturé à :</h4>
           <div class="client-info">
             ${proforma.clientName ? `<p><strong>${proforma.clientName}</strong></p>` : ''}
             ${proforma.project?.client?.name && !proforma.clientName ? `<p><strong>${proforma.project.client.name}</strong></p>` : ''}
-            ${proforma.clientAddress ? `<p>${proforma.clientAddress}</p>` : ''}
-            ${proforma.project?.client?.address && !proforma.clientAddress ? `<p>${proforma.project.client.address}</p>` : ''}
-            ${proforma.clientEmail ? `<p>Email: ${proforma.clientEmail}</p>` : ''}
-            ${proforma.project?.client?.email && !proforma.clientEmail ? `<p>Email: ${proforma.project.client.email}</p>` : ''}
-            ${proforma.clientPhone ? `<p>Tél: ${proforma.clientPhone}</p>` : ''}
-            ${proforma.project?.client?.phone && !proforma.clientPhone ? `<p>Tél: ${proforma.project.client.phone}</p>` : ''}
+            ${proforma.clientAddress ? `<p>📍 ${proforma.clientAddress}</p>` : ''}
+            ${proforma.project?.client?.address && !proforma.clientAddress ? `<p>📍 ${proforma.project.client.address}</p>` : ''}
+            ${proforma.clientEmail ? `<p>📧 ${proforma.clientEmail}</p>` : ''}
+            ${proforma.project?.client?.email && !proforma.clientEmail ? `<p>📧 ${proforma.project.client.email}</p>` : ''}
+            ${proforma.clientPhone ? `<p>📞 ${proforma.clientPhone}</p>` : ''}
+            ${proforma.project?.client?.phone && !proforma.clientPhone ? `<p>📞 ${proforma.project.client.phone}</p>` : ''}
           </div>
         </div>
         
@@ -293,19 +379,36 @@ function generateProformaHTML(proforma: any, user: any) {
             <thead>
               <tr>
                 <th>Description</th>
-                <th style="text-align: right;">Montant</th>
+                <th style="text-align: center; width: 100px;">Qté</th>
+                <th style="text-align: right; width: 120px;">Prix unitaire</th>
+                <th style="text-align: right; width: 150px;">Total</th>
               </tr>
             </thead>
             <tbody>
-              <tr>
-                <td>
-                  ${proforma.project ? `<strong>Projet:</strong> ${proforma.project.name}` : 'Prestation'}
-                  ${proforma.notes ? `<br><small>${proforma.notes}</small>` : ''}
-                </td>
-                <td style="text-align: right; font-weight: 600;">
-                  ${formatCurrency(proforma.amount)}
-                </td>
-              </tr>
+              ${proforma.project?.services && proforma.project.services.length > 0 ? 
+                proforma.project.services.map((service: any) => `
+                  <tr class="service-row">
+                    <td>
+                      <strong>${service.name}</strong>
+                      ${service.description ? `<br><small style="color: #666;">${service.description}</small>` : ''}
+                      ${service.unit ? `<br><small style="color: #888;">Unité: ${service.unit}</small>` : ''}
+                    </td>
+                    <td style="text-align: center;">${service.quantity}</td>
+                    <td style="text-align: right;">${formatCurrency(service.amount)}</td>
+                    <td style="text-align: right; font-weight: 600;">${formatCurrency(service.amount * service.quantity)}</td>
+                  </tr>
+                `).join('') : `
+                  <tr>
+                    <td>
+                      ${proforma.project ? `<strong>Projet:</strong> ${proforma.project.name}` : 'Prestation'}
+                      ${proforma.project?.description ? `<br><small style="color: #666;">${proforma.project.description}</small>` : ''}
+                    </td>
+                    <td style="text-align: center;">1</td>
+                    <td style="text-align: right;">${formatCurrency(proforma.amount)}</td>
+                    <td style="text-align: right; font-weight: 600;">${formatCurrency(proforma.amount)}</td>
+                  </tr>
+                `
+              }
             </tbody>
           </table>
         </div>
@@ -313,25 +416,31 @@ function generateProformaHTML(proforma: any, user: any) {
         <!-- Total -->
         <div class="total-section">
           <div class="total-box">
-            <h3>Total TTC</h3>
-            <p style="font-size: 28px; font-weight: bold;">
-              ${formatCurrency(proforma.amount)}
-            </p>
+            <h4>Total TTC</h4>
+            <div class="amount">${formatCurrency(proforma.amount)}</div>
           </div>
         </div>
         
         <!-- Notes -->
         ${proforma.notes ? `
           <div class="notes-section">
-            <h3>Notes</h3>
+            <h4>📝 Notes</h4>
             <p>${proforma.notes}</p>
           </div>
         ` : ''}
         
         <!-- Pied de page -->
         <div class="footer">
-          <p>Ce devis est valable 30 jours à compter de la date d'émission.</p>
-          <p>Merci de votre confiance !</p>
+          <div class="validity">${getValidityText()}</div>
+          <p>Merci de votre confiance ! 🙏</p>
+          
+          ${companySettings ? `
+            <div class="company-footer">
+              ${companySettings.bankName ? `<p><strong>Banque:</strong> ${companySettings.bankName}</p>` : ''}
+              ${companySettings.bankAccount ? `<p><strong>Compte:</strong> ${companySettings.bankAccount}</p>` : ''}
+              ${companySettings.legalForm ? `<p><strong>Forme juridique:</strong> ${companySettings.legalForm}</p>` : ''}
+            </div>
+          ` : ''}
         </div>
       </div>
     </body>

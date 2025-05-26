@@ -6,7 +6,7 @@ import { clientSchema } from "@/lib/validations"
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -18,9 +18,11 @@ export async function GET(
       )
     }
 
+    const { id } = await params
+
     const client = await prisma.client.findFirst({
       where: {
-        id: params.id,
+        id,
         userId: session.user.id
       },
       include: {
@@ -59,7 +61,7 @@ export async function GET(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -74,9 +76,11 @@ export async function PUT(
     const body = await request.json()
     const validatedData = clientSchema.parse(body)
 
+    const { id } = await params
+
     const client = await prisma.client.updateMany({
       where: {
-        id: params.id,
+        id,
         userId: session.user.id
       },
       data: validatedData
@@ -90,7 +94,7 @@ export async function PUT(
     }
 
     const updatedClient = await prisma.client.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         _count: {
           select: {
@@ -112,7 +116,7 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -124,10 +128,12 @@ export async function DELETE(
       )
     }
 
+    const { id } = await params
+
     // Vérifier si le client a des projets
     const clientWithProjects = await prisma.client.findFirst({
       where: {
-        id: params.id,
+        id,
         userId: session.user.id
       },
       include: {
@@ -154,7 +160,7 @@ export async function DELETE(
     }
 
     await prisma.client.delete({
-      where: { id: params.id }
+      where: { id }
     })
 
     return NextResponse.json({ message: "Client supprimé avec succès" })
