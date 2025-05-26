@@ -1,0 +1,463 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  
+  // Informations de profil freelance
+  companyName   String?
+  companyLogo   String?
+  address       String?
+  phone         String?
+  currency      String    @default("FCFA")
+  
+  // Configuration SMTP pour envoi d'emails
+  smtpHost      String?
+  smtpPort      Int?
+  smtpUser      String?
+  smtpPassword  String?
+  smtpFrom      String?
+  
+  // Configuration Wave CI
+  waveApiKey    String?
+  waveApiSecret String?
+  waveWebhookUrl String?
+  
+  accounts      Account[]
+  sessions      Session[]
+  clients       Client[]
+  projects      Project[]
+  providers     Provider[]
+  invoices      Invoice[]
+  expenses      Expense[]
+  files         File[]
+  tasks         Task[]
+  companySettings CompanySettings?
+  emails        Email[]
+  emailTemplates EmailTemplate[]
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Client {
+  id          String    @id @default(cuid())
+  name        String
+  email       String?
+  phone       String?
+  address     String?
+  company     String?
+  notes       String?
+  photo       String?   // Photo du client
+  
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projects    Project[]
+  emails      Email[]
+  files       File[]
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  name        String
+  description String?
+  type        ProjectType   @default(CLIENT)
+  amount      Float
+  status      ProjectStatus @default(IN_PROGRESS)
+  startDate   DateTime?
+  endDate     DateTime?
+  logo        String?       // Logo du projet
+  
+  clientId    String?
+  client      Client?       @relation(fields: [clientId], references: [id])
+  
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  services    ProjectService[]
+  expenses    Expense[]
+  invoices    Invoice[]
+  projectProviders ProjectProvider[]
+  tasks       Task[]
+  files       File[]
+  emails      Email[]
+  
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model ProjectService {
+  id          String  @id @default(cuid())
+  name        String
+  description String?
+  amount      Float
+  quantity    Int     @default(1)
+  unit        String? // Ex: heure, page, etc.
+  
+  projectId   String
+  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  // Relation avec les éléments de facture pour tracking des conversions
+  invoiceItems InvoiceItem[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Provider {
+  id          String         @id @default(cuid())
+  name        String
+  email       String?
+  phone       String?
+  address     String?
+  company     String?
+  role        String?        // Spécialité/rôle du prestataire
+  photo       String?        // Photo du prestataire
+  notes       String?
+  
+  // Informations bancaires pour les paiements
+  bankName    String?
+  bankAccount String?
+  bankIban    String?
+  
+  userId      String
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Relations avec les projets via ProjectProvider
+  projectProviders ProjectProvider[]
+  files       File[]
+  
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+model ProjectProvider {
+  id          String    @id @default(cuid())
+  amount      Float     // Montant à payer au prestataire pour ce projet
+  isPaid      Boolean   @default(false)
+  paidDate    DateTime?
+  paymentMethod String? // Virement, chèque, espèces, etc.
+  notes       String?
+  
+  projectId   String
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  providerId  String
+  provider    Provider  @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  @@unique([projectId, providerId])
+}
+
+model Invoice {
+  id            String      @id @default(cuid())
+  invoiceNumber String      @unique
+  type          InvoiceType @default(INVOICE)
+  amount        Float
+  status        InvoiceStatus @default(PENDING)
+  dueDate       DateTime?
+  paidDate      DateTime?
+  paymentLink   String?
+  waveCheckoutId String?
+  notes         String?
+  
+  // Informations client pour la facture
+  clientName    String?
+  clientEmail   String?
+  clientAddress String?
+  clientPhone   String?
+  
+  // Référence à la proforma parente pour les conversions partielles
+  parentProformaId String?
+  parentProforma   Invoice? @relation("ProformaConversions", fields: [parentProformaId], references: [id])
+  conversions      Invoice[] @relation("ProformaConversions")
+  
+  projectId     String?
+  project       Project?    @relation(fields: [projectId], references: [id])
+  
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emails        Email[]
+  items         InvoiceItem[]
+  
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+}
+
+model InvoiceItem {
+  id          String  @id @default(cuid())
+  name        String
+  description String?
+  unitPrice   Float
+  quantity    Int     @default(1)
+  unit        String? // Ex: heure, page, etc.
+  totalPrice  Float   // unitPrice * quantity
+  
+  // Référence au service original du projet (si applicable)
+  projectServiceId String?
+  projectService   ProjectService? @relation(fields: [projectServiceId], references: [id])
+  
+  invoiceId   String
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Expense {
+  id          String      @id @default(cuid())
+  description String
+  amount      Float
+  category    String?
+  date        DateTime    @default(now())
+  notes       String?
+  type        ExpenseType @default(GENERAL)
+  
+  projectId   String?
+  project     Project?    @relation(fields: [projectId], references: [id])
+  
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+enum ProjectType {
+  PERSONAL
+  CLIENT
+  DEVELOPMENT
+  MAINTENANCE
+  CONSULTING
+}
+
+enum ProjectStatus {
+  IN_PROGRESS
+  COMPLETED
+  ON_HOLD
+  CANCELLED
+}
+
+enum InvoiceType {
+  PROFORMA
+  INVOICE
+}
+
+enum InvoiceStatus {
+  PENDING
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum ExpenseType {
+  GENERAL
+  PROJECT
+}
+
+model Task {
+  id          String     @id @default(cuid())
+  title       String
+  description String?
+  status      TaskStatus @default(TODO)
+  priority    TaskPriority @default(MEDIUM)
+  dueDate     DateTime?
+  
+  projectId   String
+  project     Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  userId      String
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  parentId    String?
+  parent      Task?      @relation("TaskSubtasks", fields: [parentId], references: [id])
+  subtasks    Task[]     @relation("TaskSubtasks")
+  
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model File {
+  id          String   @id @default(cuid())
+  filename    String
+  originalName String
+  mimeType    String
+  size        Int
+  path        String
+  url         String?
+  category    FileCategory @default(DOCUMENT)
+  description String?
+  
+  projectId   String?
+  project     Project? @relation(fields: [projectId], references: [id])
+  
+  clientId    String?
+  client      Client?  @relation(fields: [clientId], references: [id])
+  
+  providerId  String?
+  provider    Provider? @relation(fields: [providerId], references: [id])
+  
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  REVIEW
+  DONE
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model CompanySettings {
+  id          String  @id @default(cuid())
+  name        String
+  description String?
+  logo        String?
+  address     String
+  city        String
+  postalCode  String?
+  country     String  @default("Côte d'Ivoire")
+  phone       String
+  email       String
+  website     String?
+  rccm        String?
+  nif         String?
+  bankName    String?
+  bankAccount String?
+  bankIban    String?
+  bankSwift   String?
+  legalForm   String?
+  capital     String?
+  
+  userId      String  @unique
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Email {
+  id        String      @id @default(cuid())
+  to        String
+  subject   String
+  content   String?
+  type      String      @default("custom")
+  status    EmailStatus @default(PENDING)
+  sentAt    DateTime?
+  
+  invoiceId String?
+  invoice   Invoice?    @relation(fields: [invoiceId], references: [id])
+  
+  projectId String?
+  project   Project?    @relation(fields: [projectId], references: [id])
+  
+  clientId  String?
+  client    Client?     @relation(fields: [clientId], references: [id])
+  
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+}
+
+model EmailTemplate {
+  id      String @id @default(cuid())
+  name    String
+  subject String
+  content String
+  type    String @default("custom")
+  
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum EmailStatus {
+  PENDING
+  SENT
+  FAILED
+  DRAFT
+}
+
+enum FileCategory {
+  DOCUMENT
+  IMAGE
+  VIDEO
+  AUDIO
+  ARCHIVE
+  CONTRACT
+  INVOICE
+  RECEIPT
+  OTHER
+}
