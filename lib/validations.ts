@@ -69,13 +69,14 @@ export const providerSchema = z.object({
 export const invoiceSchema = z.object({
   type: z.enum(["PROFORMA", "INVOICE"]),
   amount: z.number().min(0, "Le montant doit être positif"),
-  dueDate: z.string().datetime().nullable().optional(),
-  projectId: z.string().nullable().optional(),
-  notes: z.string().optional(),
-  clientName: z.string().optional(),
-  clientEmail: z.string().email().optional(),
-  clientAddress: z.string().optional(),
-  clientPhone: z.string().optional(),
+  dueDate: z.string().optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
+  projectId: z.string().optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
+  notes: z.string().optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
+  clientName: z.string().optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
+  clientEmail: z.string().email("Email invalide").optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
+  clientAddress: z.string().optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
+  clientPhone: z.string().optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
+  generatePaymentLink: z.boolean().optional(),
 })
 
 // Expense schemas
@@ -83,10 +84,10 @@ export const expenseSchema = z.object({
   description: z.string().min(1, "La description est requise"),
   amount: z.number().min(0, "Le montant doit être positif"),
   category: z.string().optional(),
-  date: z.date(),
-  notes: z.string().optional(),
+  date: z.string().transform((str) => new Date(str)),
+  notes: z.string().optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
   type: z.enum(["GENERAL", "PROJECT"]),
-  projectId: z.string().optional(),
+  projectId: z.string().optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
 })
 
 // User profile schemas

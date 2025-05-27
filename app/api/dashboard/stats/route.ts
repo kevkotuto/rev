@@ -28,7 +28,11 @@ export async function GET(request: NextRequest) {
       paidInvoices,
       totalRevenue,
       totalExpenseAmount,
-      recentActivities
+      totalProviders,
+      totalTasks,
+      totalFiles,
+      recentActivities,
+      projectsWithDates
     ] = await Promise.all([
       // Nombre total de clients
       prisma.client.count({
@@ -101,6 +105,21 @@ export async function GET(request: NextRequest) {
         }
       }),
 
+      // Nombre total de prestataires
+      prisma.provider.count({
+        where: { userId }
+      }),
+
+      // Nombre total de tâches
+      prisma.task.count({
+        where: { userId }
+      }),
+
+      // Nombre total de fichiers
+      prisma.file.count({
+        where: { userId }
+      }),
+
       // Activités récentes (dernières factures et projets)
       prisma.$transaction([
         prisma.invoice.findMany({
@@ -132,7 +151,27 @@ export async function GET(request: NextRequest) {
             }
           }
         })
-      ])
+      ]),
+
+      // Projets avec leurs dates pour analyse des délais
+      prisma.project.findMany({
+        where: { userId },
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          startDate: true,
+          endDate: true,
+          createdAt: true,
+          updatedAt: true,
+          amount: true,
+          client: {
+            select: {
+              name: true
+            }
+          }
+        }
+      })
     ])
 
     // Calculs des revenus par mois (6 derniers mois)
@@ -173,6 +212,48 @@ export async function GET(request: NextRequest) {
       }
     }).reverse()
 
+    // Analyse des délais de projets
+    const now = new Date()
+    const projectDelayAnalysis = {
+      onTime: 0,
+      delayed: 0,
+      upcoming: 0,
+      averageDuration: 0
+    }
+
+    let totalDuration = 0
+    let completedWithDates = 0
+
+    projectsWithDates.forEach(project => {
+      if (project.status === 'COMPLETED' && project.startDate && project.endDate) {
+        const duration = new Date(project.endDate).getTime() - new Date(project.startDate).getTime()
+        totalDuration += duration
+        completedWithDates++
+      }
+
+      if (project.endDate) {
+        const endDate = new Date(project.endDate)
+        if (project.status === 'COMPLETED') {
+          projectDelayAnalysis.onTime++
+        } else if (endDate < now) {
+          projectDelayAnalysis.delayed++
+        } else {
+          projectDelayAnalysis.upcoming++
+        }
+      }
+    })
+
+    if (completedWithDates > 0) {
+      projectDelayAnalysis.averageDuration = Math.round(totalDuration / completedWithDates / (1000 * 60 * 60 * 24)) // en jours
+    }
+
+    // Projets par type et statut
+    const projectsByType = projectsWithDates.reduce((acc, project) => {
+      const type = project.client ? 'CLIENT' : 'PERSONNEL'
+      acc[type] = (acc[type] || 0) + 1
+      return acc
+    }, {} as Record<string, number>)
+
     const stats = {
       overview: {
         totalClients,
@@ -182,7 +263,15 @@ export async function GET(request: NextRequest) {
         activeProjects,
         completedProjects,
         pendingInvoices,
-        paidInvoices
+        paidInvoices,
+        totalProviders,
+        totalTasks,
+        totalFiles
+      },
+      projectAnalysis: {
+        projectsByType,
+        delayAnalysis: projectDelayAnalysis,
+        averageProjectValue: totalProjects > 0 ? projectsWithDates.reduce((sum, p) => sum + p.amount, 0) / totalProjects : 0
       },
       financial: {
         totalRevenue: totalRevenue._sum.amount || 0,

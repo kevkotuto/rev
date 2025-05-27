@@ -33,6 +33,7 @@ interface UserProfile {
   smtpFrom?: string
   waveApiKey?: string
   waveWebhookUrl?: string
+  waveWebhookSecret?: string
 }
 
 export default function ProfilePage() {
@@ -55,7 +56,8 @@ export default function ProfilePage() {
     smtpPassword: "",
     smtpFrom: "",
     waveApiKey: "",
-    waveWebhookUrl: ""
+    waveWebhookUrl: "",
+    waveWebhookSecret: ""
   })
 
   useEffect(() => {
@@ -81,7 +83,8 @@ export default function ProfilePage() {
           smtpPassword: "",
           smtpFrom: data.smtpFrom || "",
           waveApiKey: data.waveApiKey || "",
-          waveWebhookUrl: data.waveWebhookUrl || ""
+          waveWebhookUrl: data.waveWebhookUrl || "",
+          waveWebhookSecret: data.waveWebhookSecret || ""
         })
       }
     } catch (error) {
@@ -381,16 +384,30 @@ export default function ProfilePage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="waveApiKey">Clé API Wave</Label>
-                <Input
-                  id="waveApiKey"
-                  value={formData.waveApiKey}
-                  onChange={(e) => setFormData({...formData, waveApiKey: e.target.value})}
-                  placeholder="Votre clé API Wave"
-                />
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="waveApiKey">Clé API Wave</Label>
+                  <Input
+                    id="waveApiKey"
+                    type="password"
+                    value={formData.waveApiKey}
+                    onChange={(e) => setFormData({...formData, waveApiKey: e.target.value})}
+                    placeholder="Votre clé API Wave"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="waveWebhookSecret">Secret Webhook Wave</Label>
+                  <Input
+                    id="waveWebhookSecret"
+                    type="password"
+                    value={formData.waveWebhookSecret}
+                    onChange={(e) => setFormData({...formData, waveWebhookSecret: e.target.value})}
+                    placeholder="Secret fourni par Wave après configuration"
+                  />
+                </div>
               </div>
+              
               <div className="space-y-2">
                 <Label>URL Webhook Wave (Générée automatiquement)</Label>
                 <div className="flex items-center gap-2">
@@ -425,9 +442,19 @@ export default function ProfilePage() {
                 <li>Connectez-vous à votre tableau de bord Wave CI</li>
                 <li>Allez dans les paramètres de votre compte</li>
                 <li>Ajoutez l'URL webhook ci-dessus</li>
-                <li>Configurez votre clé API dans le champ ci-dessus</li>
+                <li>Récupérez votre clé API et saisissez-la dans le premier champ</li>
+                <li><strong>Important :</strong> Une fois le webhook configuré, Wave CI vous fournira un "Secret" - saisissez-le dans le champ "Secret Webhook"</li>
+                <li>Sauvegardez vos paramètres ici</li>
                 <li>Testez un paiement pour vérifier la configuration</li>
               </ol>
+            </div>
+
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4 mt-4">
+              <h4 className="font-medium text-green-800 mb-2">✅ Sécurité renforcée</h4>
+              <p className="text-sm text-green-700">
+                Le secret webhook garantit que seuls les vrais paiements Wave CI sont traités. 
+                Sans ce secret, les webhooks fonctionneront mais sans vérification de signature.
+              </p>
             </div>
 
 

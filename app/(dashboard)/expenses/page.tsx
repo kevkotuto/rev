@@ -76,7 +76,7 @@ const categories = [
 ]
 
 const types = [
-  { value: 'BUSINESS', label: 'Professionnel' },
+  { value: 'GENERAL', label: 'Professionnel' },
   { value: 'PROJECT', label: 'Projet' }
 ]
 
@@ -95,7 +95,7 @@ export default function ExpensesPage() {
     description: "",
     amount: "",
     category: "OTHER",
-    type: "BUSINESS",
+    type: "GENERAL",
     date: new Date().toISOString().split('T')[0],
     notes: "",
     projectId: ""
@@ -216,7 +216,7 @@ export default function ExpensesPage() {
       description: "",
       amount: "",
       category: "OTHER",
-      type: "BUSINESS",
+      type: "GENERAL",
       date: new Date().toISOString().split('T')[0],
       notes: "",
       projectId: "none"
@@ -258,7 +258,7 @@ export default function ExpensesPage() {
 
   const getTypeBadge = (type: string) => {
     const typeMap = {
-      'BUSINESS': { label: 'Professionnel', variant: 'default' as const },
+      'GENERAL': { label: 'Professionnel', variant: 'default' as const },
       'PROJECT': { label: 'Projet', variant: 'secondary' as const }
     }
     

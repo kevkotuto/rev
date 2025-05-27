@@ -328,8 +328,6 @@ export default function TasksPage() {
     setDraggedTask(null)
   }
 
-
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -512,14 +510,14 @@ export default function TasksPage() {
               onDrop={(e) => handleDrop(column.id, e)}
             >
               {getTasksByStatus(column.id).map((task, index) => (
-                                                    <motion.div
-                    key={task.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.1 }}
-                    className={`${draggedTask?.id === task.id ? 'opacity-50' : ''}`}
-                  >
-                                      <Card 
+                <motion.div
+                  key={task.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.1 }}
+                  className={`${draggedTask?.id === task.id ? 'opacity-50' : ''}`}
+                >
+                  <Card 
                     className={`hover:shadow-md transition-all cursor-move group relative ${
                       draggedTask?.id === task.id ? 'shadow-lg scale-105' : ''
                     }`}

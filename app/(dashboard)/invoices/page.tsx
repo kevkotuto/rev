@@ -369,7 +369,14 @@ export default function InvoicesPage() {
             Gérez vos factures et proformas, envoyez-les par email avec PDF
           </p>
         </div>
-        <Button onClick={() => setShowCreateDialog(true)}>
+        <Button onClick={() => {
+          setFormData({
+            type: "INVOICE",
+            amount: 0,
+            generatePaymentLink: false
+          })
+          setShowCreateDialog(true)
+        }}>
           <Plus className="mr-2 h-4 w-4" />
           Nouvelle facture
         </Button>

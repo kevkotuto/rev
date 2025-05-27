@@ -25,39 +25,70 @@ interface WaveWebhookPayload {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.text()
-    const signature = request.headers.get('x-wave-signature')
+    const waveSignature = request.headers.get('wave-signature')
     
-    // Récupérer la clé secrète Wave depuis les variables d'environnement
-    const waveSecret = process.env.WAVE_WEBHOOK_SECRET
+    // Parse du payload pour obtenir des informations de base
+    const payload: WaveWebhookPayload = JSON.parse(body)
     
-    if (!waveSecret) {
-      console.error('WAVE_WEBHOOK_SECRET non configuré')
+    // Récupérer la facture pour identifier l'utilisateur
+    const invoice = await prisma.invoice.findFirst({
+      where: {
+        OR: [
+          { id: payload.data.reference },
+          { invoiceNumber: payload.data.reference },
+          { waveCheckoutId: payload.data.id }
+        ]
+      },
+      include: {
+        project: true
+      }
+    })
+
+    if (!invoice) {
+      console.error('Facture non trouvée pour la référence:', payload.data.reference)
       return NextResponse.json(
-        { message: "Configuration webhook manquante" },
-        { status: 500 }
+        { message: "Facture non trouvée" },
+        { status: 404 }
       )
     }
 
-    // Vérifier la signature du webhook (sécurité)
-    if (signature) {
-      const expectedSignature = crypto
-        .createHmac('sha256', waveSecret)
-        .update(body)
-        .digest('hex')
-      
-      const receivedSignature = signature.replace('sha256=', '')
-      
-      if (expectedSignature !== receivedSignature) {
-        console.error('Signature webhook invalide')
-        return NextResponse.json(
-          { message: "Signature invalide" },
-          { status: 401 }
-        )
+    // Récupérer la configuration Wave de l'utilisateur
+    const user = await prisma.user.findUnique({
+      where: { id: invoice.userId },
+      select: {
+        waveWebhookSecret: true
       }
-    }
+    })
 
-    const payload: WaveWebhookPayload = JSON.parse(body)
+    // Vérification de la signature Wave selon leur documentation
+    if (user?.waveWebhookSecret && waveSignature) {
+      const elements = waveSignature.split(',')
+      const timestamp = elements.find(el => el.startsWith('t='))?.replace('t=', '')
+      const signature = elements.find(el => el.startsWith('v1='))?.replace('v1=', '')
+      
+      if (timestamp && signature) {
+        const signedPayload = `${timestamp}.${body}`
+        const expectedSignature = crypto
+          .createHmac('sha256', user.waveWebhookSecret)
+          .update(signedPayload)
+          .digest('hex')
+        
+        if (expectedSignature !== signature) {
+          console.error('Signature webhook Wave invalide')
+          return NextResponse.json(
+            { message: "Signature invalide" },
+            { status: 401 }
+          )
+        }
+        
+        console.log('✅ Signature webhook Wave vérifiée avec succès')
+      }
+    } else if (!user?.waveWebhookSecret) {
+      console.warn('⚠️ Secret webhook Wave non configuré pour cet utilisateur')
+    }
     
+    console.log('Webhook Wave traité pour la facture:', invoice.id)
+
     console.log('Webhook Wave reçu:', payload)
 
     // Traiter selon le type d'événement

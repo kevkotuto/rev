@@ -130,6 +130,21 @@ interface Provider {
   photo?: string
 }
 
+interface Expense {
+  id: string
+  description: string
+  amount: number
+  category: string
+  type: string
+  date: string
+  notes?: string
+  createdAt: string
+  project?: {
+    id: string
+    name: string
+  }
+}
+
 export default function ProjectDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -138,6 +153,7 @@ export default function ProjectDetailPage() {
   const [project, setProject] = useState<Project | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
   const [providers, setProviders] = useState<Provider[]>([])
+  const [expenses, setExpenses] = useState<Expense[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState("overview")
   
@@ -146,6 +162,8 @@ export default function ProjectDetailPage() {
   const [isFileDialogOpen, setIsFileDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isProviderDialogOpen, setIsProviderDialogOpen] = useState(false)
+  const [isExpenseDialogOpen, setIsExpenseDialogOpen] = useState(false)
+  const [isAdvancePaymentDialogOpen, setIsAdvancePaymentDialogOpen] = useState(false)
 
   const [isConvertDialogOpen, setIsConvertDialogOpen] = useState(false)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
@@ -178,12 +196,29 @@ export default function ProjectDetailPage() {
     notes: ""
   })
 
+  const [expenseForm, setExpenseForm] = useState({
+    description: "",
+    amount: "",
+    category: "OTHER",
+    date: new Date().toISOString().split('T')[0],
+    notes: ""
+  })
+
+  const [advancePaymentForm, setAdvancePaymentForm] = useState({
+    amount: "",
+    description: "",
+    clientEmail: "",
+    generatePaymentLink: false
+  })
+
 
 
   const [convertForm, setConvertForm] = useState({
     generatePaymentLink: false,
     paymentMethod: "CASH" as "WAVE" | "CASH" | "BANK_TRANSFER",
-    markAsPaid: false
+    markAsPaid: false,
+    conversionType: "FULL" as "FULL" | "PARTIAL",
+    partialAmount: 0
   })
 
   const [fileUpload, setFileUpload] = useState<File | null>(null)
@@ -194,6 +229,7 @@ export default function ProjectDetailPage() {
       fetchProject()
       fetchTasks()
       fetchProviders()
+      fetchExpenses()
     }
   }, [projectId])
 
@@ -250,6 +286,18 @@ export default function ProjectDetailPage() {
     }
   }
 
+  const fetchExpenses = async () => {
+    try {
+      const response = await fetch(`/api/projects/${projectId}/expenses`)
+      if (response.ok) {
+        const data = await response.json()
+        setExpenses(data)
+      }
+    } catch (error) {
+      console.error('Erreur lors du chargement des dépenses:', error)
+    }
+  }
+
   // Gestion des proformas
   const handleGenerateProforma = async () => {
     try {
@@ -277,15 +325,24 @@ export default function ProjectDetailPage() {
     if (!selectedProforma) return
 
     try {
+      const requestData = {
+        ...convertForm,
+        amount: convertForm.conversionType === "PARTIAL" ? convertForm.partialAmount : selectedProforma.amount
+      }
+
       const response = await fetch(`/api/invoices/${selectedProforma.id}/convert`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(convertForm)
+        body: JSON.stringify(requestData)
       })
 
       if (response.ok) {
         const result = await response.json()
-        toast.success(result.message)
+        if (convertForm.conversionType === "PARTIAL") {
+          toast.success(`Acompte de ${formatCurrency(convertForm.partialAmount)} créé avec succès`)
+        } else {
+          toast.success(result.message)
+        }
         setIsConvertDialogOpen(false)
         fetchProject()
         
@@ -348,6 +405,99 @@ export default function ProjectDetailPage() {
     } catch (error) {
       console.error('Erreur:', error)
       toast.error('Erreur lors de la mise à jour du paiement')
+    }
+  }
+
+  // Gestion des acomptes généraux
+  const handleCreateAdvancePayment = async () => {
+    try {
+      const response = await fetch('/api/invoices/advance-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId,
+          amount: parseFloat(advancePaymentForm.amount),
+          description: advancePaymentForm.description,
+          clientEmail: advancePaymentForm.clientEmail,
+          generatePaymentLink: advancePaymentForm.generatePaymentLink
+        })
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        toast.success(result.message)
+        setIsAdvancePaymentDialogOpen(false)
+        setAdvancePaymentForm({
+          amount: "",
+          description: "",
+          clientEmail: "",
+          generatePaymentLink: false
+        })
+        fetchProject()
+
+        if (result.paymentLink) {
+          window.open(result.paymentLink, '_blank')
+        }
+      } else {
+        const error = await response.json()
+        toast.error(error.message || 'Erreur lors de la création de l\'acompte')
+      }
+    } catch (error) {
+      console.error('Erreur:', error)
+      toast.error('Erreur lors de la création de l\'acompte')
+    }
+  }
+
+  // Gestion des dépenses
+  const handleCreateExpense = async () => {
+    try {
+      const response = await fetch(`/api/projects/${projectId}/expenses`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...expenseForm,
+          amount: parseFloat(expenseForm.amount)
+        })
+      })
+
+      if (response.ok) {
+        toast.success('Dépense créée avec succès')
+        setIsExpenseDialogOpen(false)
+        setExpenseForm({
+          description: "",
+          amount: "",
+          category: "OTHER",
+          date: new Date().toISOString().split('T')[0],
+          notes: ""
+        })
+        fetchExpenses()
+      } else {
+        const error = await response.json()
+        toast.error(error.message || 'Erreur lors de la création de la dépense')
+      }
+    } catch (error) {
+      console.error('Erreur:', error)
+      toast.error('Erreur lors de la création de la dépense')
+    }
+  }
+
+  const handleDeleteExpense = async (expenseId: string) => {
+    if (!confirm('Êtes-vous sûr de vouloir supprimer cette dépense ?')) return
+
+    try {
+      const response = await fetch(`/api/expenses/${expenseId}`, {
+        method: 'DELETE'
+      })
+
+      if (response.ok) {
+        toast.success('Dépense supprimée avec succès')
+        fetchExpenses()
+      } else {
+        toast.error('Erreur lors de la suppression de la dépense')
+      }
+    } catch (error) {
+      console.error('Erreur:', error)
+      toast.error('Erreur lors de la suppression de la dépense')
     }
   }
 
@@ -843,11 +993,12 @@ export default function ProjectDetailPage() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-7">
+        <TabsList className="grid w-full grid-cols-8">
           <TabsTrigger value="overview">Vue d'ensemble</TabsTrigger>
           <TabsTrigger value="tasks">Tâches</TabsTrigger>
           <TabsTrigger value="files">Fichiers</TabsTrigger>
           <TabsTrigger value="providers">Prestataires</TabsTrigger>
+          <TabsTrigger value="expenses">Dépenses</TabsTrigger>
           <TabsTrigger value="services">Services</TabsTrigger>
           <TabsTrigger value="budget">Budget</TabsTrigger>
           <TabsTrigger value="invoices">Facturation</TabsTrigger>
@@ -1156,6 +1307,157 @@ export default function ProjectDetailPage() {
           </div>
         </TabsContent>
 
+        <TabsContent value="expenses" className="space-y-6">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">Dépenses du projet</h3>
+            <Dialog open={isExpenseDialogOpen} onOpenChange={setIsExpenseDialogOpen}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Nouvelle dépense
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Nouvelle dépense</DialogTitle>
+                  <DialogDescription>
+                    Enregistrez une dépense pour ce projet (hébergement, abonnements, etc.).
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="expense-description">Description</Label>
+                    <Input
+                      id="expense-description"
+                      value={expenseForm.description}
+                      onChange={(e) => setExpenseForm({ ...expenseForm, description: e.target.value })}
+                      placeholder="Ex: Hébergement mensuel, abonnement Expo..."
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="expense-amount">Montant (XOF)</Label>
+                      <Input
+                        id="expense-amount"
+                        type="number"
+                        value={expenseForm.amount}
+                        onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })}
+                        placeholder="0"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="expense-date">Date</Label>
+                      <Input
+                        id="expense-date"
+                        type="date"
+                        value={expenseForm.date}
+                        onChange={(e) => setExpenseForm({ ...expenseForm, date: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="expense-category">Catégorie</Label>
+                    <Select value={expenseForm.category} onValueChange={(value) => setExpenseForm({ ...expenseForm, category: value })}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="HOSTING">Hébergement</SelectItem>
+                        <SelectItem value="SOFTWARE">Logiciels</SelectItem>
+                        <SelectItem value="SUBSCRIPTION">Abonnements</SelectItem>
+                        <SelectItem value="DOMAIN">Nom de domaine</SelectItem>
+                        <SelectItem value="EQUIPMENT">Équipement</SelectItem>
+                        <SelectItem value="OTHER">Autre</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="expense-notes">Notes</Label>
+                    <Textarea
+                      id="expense-notes"
+                      value={expenseForm.notes}
+                      onChange={(e) => setExpenseForm({ ...expenseForm, notes: e.target.value })}
+                      placeholder="Notes sur cette dépense..."
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setIsExpenseDialogOpen(false)}>
+                    Annuler
+                  </Button>
+                  <Button onClick={handleCreateExpense} disabled={!expenseForm.description || !expenseForm.amount}>
+                    Créer
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-1">
+            {expenses.map((expense) => (
+              <Card key={expense.id}>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-gradient-to-br from-red-500 to-pink-500 rounded-full flex items-center justify-center text-white">
+                        <Receipt className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-medium">{expense.description}</h4>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Badge variant="secondary" className="text-xs">
+                            {expense.category}
+                          </Badge>
+                          <span className="text-sm text-muted-foreground">
+                            {new Date(expense.date).toLocaleDateString('fr-FR')}
+                          </span>
+                        </div>
+                        {expense.notes && (
+                          <p className="text-sm text-muted-foreground mt-1">{expense.notes}</p>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                      <div className="text-right">
+                        <div className="font-semibold text-red-600">
+                          {formatCurrency(expense.amount)}
+                        </div>
+                      </div>
+                      
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem 
+                            onClick={() => handleDeleteExpense(expense.id)}
+                            className="text-red-600"
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Supprimer
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+            {expenses.length === 0 && (
+              <div className="text-center py-12">
+                <Receipt className="mx-auto h-12 w-12 text-muted-foreground" />
+                <h3 className="mt-2 text-sm font-semibold">Aucune dépense</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Commencez par enregistrer votre première dépense pour ce projet.
+                </p>
+              </div>
+            )}
+          </div>
+        </TabsContent>
+
         <TabsContent value="services" className="space-y-6">
           <ProjectServices projectId={projectId} onServicesUpdated={fetchProject} />
         </TabsContent>
@@ -1165,6 +1467,85 @@ export default function ProjectDetailPage() {
         </TabsContent>
 
         <TabsContent value="invoices" className="space-y-6">
+          {/* Bouton pour créer un acompte général */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <CreditCard className="h-5 w-5" />
+                  Acompte général
+                </span>
+                <Dialog open={isAdvancePaymentDialogOpen} onOpenChange={setIsAdvancePaymentDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline">
+                      <Plus className="w-4 h-4 mr-2" />
+                      Créer un acompte
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Créer un acompte général</DialogTitle>
+                      <DialogDescription>
+                        Créez une facture d'acompte générale pour ce projet (non liée à un service spécifique).
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="advance-amount">Montant de l'acompte (XOF)</Label>
+                        <Input
+                          id="advance-amount"
+                          type="number"
+                          value={advancePaymentForm.amount}
+                          onChange={(e) => setAdvancePaymentForm({ ...advancePaymentForm, amount: e.target.value })}
+                          placeholder="Ex: 50000"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="advance-description">Description</Label>
+                        <Textarea
+                          id="advance-description"
+                          value={advancePaymentForm.description}
+                          onChange={(e) => setAdvancePaymentForm({ ...advancePaymentForm, description: e.target.value })}
+                          placeholder="Ex: Acompte de 50% pour démarrer le projet"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="advance-email">Email du client (optionnel)</Label>
+                        <Input
+                          id="advance-email"
+                          type="email"
+                          value={advancePaymentForm.clientEmail}
+                          onChange={(e) => setAdvancePaymentForm({ ...advancePaymentForm, clientEmail: e.target.value })}
+                          placeholder="client@exemple.com"
+                        />
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id="advance-payment-link"
+                          checked={advancePaymentForm.generatePaymentLink}
+                          onChange={(e) => setAdvancePaymentForm({ ...advancePaymentForm, generatePaymentLink: e.target.checked })}
+                        />
+                        <Label htmlFor="advance-payment-link">Générer un lien de paiement Wave</Label>
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => setIsAdvancePaymentDialogOpen(false)}>
+                        Annuler
+                      </Button>
+                      <Button onClick={handleCreateAdvancePayment} disabled={!advancePaymentForm.amount}>
+                        Créer l'acompte
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </CardTitle>
+              <CardDescription>
+                Créez des acomptes généraux pour ce projet (non liés à des services spécifiques)
+              </CardDescription>
+            </CardHeader>
+          </Card>
+
           {/* Gestion professionnelle des proformas */}
           <ProformaManagement 
             projectId={projectId} 
@@ -1207,7 +1588,7 @@ export default function ProjectDetailPage() {
 
       {/* Dialog de conversion proforma en facture */}
       <Dialog open={isConvertDialogOpen} onOpenChange={setIsConvertDialogOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>Convertir en facture</DialogTitle>
             <DialogDescription>
@@ -1215,16 +1596,52 @@ export default function ProjectDetailPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
-                         <div className="flex items-center space-x-2">
-               <input
-                 type="checkbox"
-                 id="generatePaymentLink"
-                 checked={convertForm.generatePaymentLink}
-                 onChange={(e) => setConvertForm({ ...convertForm, generatePaymentLink: e.target.checked })}
-                 aria-label="Générer un lien de paiement"
-               />
-               <Label htmlFor="generatePaymentLink">Générer un lien de paiement</Label>
-             </div>
+            <div className="space-y-2">
+              <Label htmlFor="conversionType">Type de conversion</Label>
+              <Select 
+                value={convertForm.conversionType} 
+                onValueChange={(value: "FULL" | "PARTIAL") => 
+                  setConvertForm({ ...convertForm, conversionType: value })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="FULL">Conversion complète</SelectItem>
+                  <SelectItem value="PARTIAL">Acompte (paiement partiel)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {convertForm.conversionType === "PARTIAL" && (
+              <div className="space-y-2">
+                <Label htmlFor="partialAmount">Montant de l'acompte (XOF)</Label>
+                <Input
+                  id="partialAmount"
+                  type="number"
+                  value={convertForm.partialAmount}
+                  onChange={(e) => setConvertForm({ ...convertForm, partialAmount: parseFloat(e.target.value) || 0 })}
+                  placeholder="Montant de l'acompte"
+                />
+                {selectedProforma && (
+                  <p className="text-sm text-muted-foreground">
+                    Montant total: {formatCurrency(selectedProforma.amount)}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="generatePaymentLink"
+                checked={convertForm.generatePaymentLink}
+                onChange={(e) => setConvertForm({ ...convertForm, generatePaymentLink: e.target.checked })}
+                aria-label="Générer un lien de paiement"
+              />
+              <Label htmlFor="generatePaymentLink">Générer un lien de paiement</Label>
+            </div>
             
             {convertForm.generatePaymentLink && (
               <div className="space-y-2">
@@ -1247,23 +1664,23 @@ export default function ProjectDetailPage() {
               </div>
             )}
 
-                         <div className="flex items-center space-x-2">
-               <input
-                 type="checkbox"
-                 id="markAsPaid"
-                 checked={convertForm.markAsPaid}
-                 onChange={(e) => setConvertForm({ ...convertForm, markAsPaid: e.target.checked })}
-                 aria-label="Marquer comme payée"
-               />
-               <Label htmlFor="markAsPaid">Marquer comme payée (paiement cash)</Label>
-             </div>
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="markAsPaid"
+                checked={convertForm.markAsPaid}
+                onChange={(e) => setConvertForm({ ...convertForm, markAsPaid: e.target.checked })}
+                aria-label="Marquer comme payée"
+              />
+              <Label htmlFor="markAsPaid">Marquer comme payée (paiement cash)</Label>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsConvertDialogOpen(false)}>
               Annuler
             </Button>
             <Button onClick={handleConvertToInvoice}>
-              Convertir en facture
+              {convertForm.conversionType === "PARTIAL" ? "Créer l'acompte" : "Convertir en facture"}
             </Button>
           </DialogFooter>
         </DialogContent>
