@@ -30,6 +30,7 @@ interface FinanceData {
   totalRevenue: number
   totalExpenses: number
   netProfit: number
+  pendingRevenue: number
   pendingInvoices: number
   paidInvoices: number
   overdueInvoices: number
@@ -52,6 +53,7 @@ interface FinanceData {
     date: string
     status: string
     category?: string
+    dateLabel?: string
   }>
 }
 
@@ -74,6 +76,7 @@ const expenseCategories = [
   { value: 'COMMUNICATION', label: 'Communication' },
   { value: 'BANKING', label: 'Frais bancaires' },
   { value: 'TAXES', label: 'Taxes' },
+  { value: 'PROVIDER_PAYMENT', label: 'Paiement prestataire' },
   { value: 'OTHER', label: 'Autres' }
 ]
 
@@ -335,7 +338,7 @@ export default function FinancePage() {
       </div>
 
       {/* Métriques principales */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -413,16 +416,38 @@ export default function FinancePage() {
         >
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Factures en attente</CardTitle>
+              <CardTitle className="text-sm font-medium">Revenus en attente</CardTitle>
               <AlertTriangle className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-yellow-600">
-                {financeData.pendingInvoices}
+                {formatCurrency(financeData.pendingRevenue)}
               </div>
               <div className="flex items-center text-xs text-muted-foreground">
                 <Calendar className="mr-1 h-3 w-3" />
-                À encaisser
+                {financeData.pendingInvoices} facture{financeData.pendingInvoices !== 1 ? 's' : ''} à encaisser
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.5 }}
+        >
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Revenus totaux potentiels</CardTitle>
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-blue-600">
+                {formatCurrency(financeData.totalRevenue + financeData.pendingRevenue)}
+              </div>
+              <div className="flex items-center text-xs text-muted-foreground">
+                <DollarSign className="mr-1 h-3 w-3" />
+                Encaissé + En attente
               </div>
             </CardContent>
           </Card>
@@ -544,7 +569,7 @@ export default function FinancePage() {
                     <div>
                       <div className="font-medium">{transaction.description}</div>
                       <div className="text-sm text-muted-foreground">
-                        {new Date(transaction.date).toLocaleDateString('fr-FR')}
+                        {transaction.dateLabel ? `${transaction.dateLabel} ` : ''}{new Date(transaction.date).toLocaleDateString('fr-FR')}
                         {categoryLabel && (
                           <span className="ml-2">• {categoryLabel}</span>
                         )}

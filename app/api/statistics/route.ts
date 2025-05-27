@@ -185,7 +185,9 @@ export async function GET(request: NextRequest) {
       invoices, 
       expenses,
       previousInvoices,
-      previousExpenses
+      previousExpenses,
+      paidInvoicesInPeriod,
+      paidInvoicesPreviousPeriod
     ] = await Promise.all([
       prisma.client.findMany({
         where: { userId },
@@ -236,15 +238,44 @@ export async function GET(request: NextRequest) {
           userId,
           ...previousDateFilter
         }
+      }),
+      // Factures payées dans la période (basé sur paidDate)
+      prisma.invoice.findMany({
+        where: { 
+          userId,
+          status: 'PAID',
+          ...(startDate && endDate ? {
+            paidDate: {
+              gte: new Date(startDate),
+              lte: new Date(endDate + 'T23:59:59.999Z')
+            }
+          } : {})
+        }
+      }),
+      // Factures payées période précédente - simplifié
+      prisma.invoice.findMany({
+        where: { 
+          userId,
+          status: 'PAID'
+        }
       })
     ])
 
-    // Calculs des métriques de revenus
-    const totalRevenue = invoices.filter(i => i.status === 'PAID').reduce((sum, i) => sum + i.amount, 0)
+    // Calculs des métriques de revenus - utiliser les factures payées dans la période
+    const totalRevenue = paidInvoicesInPeriod.reduce((sum, i) => sum + i.amount, 0)
     const pendingRevenue = invoices.filter(i => i.status === 'PENDING').reduce((sum, i) => sum + i.amount, 0)
     const overdueRevenue = invoices.filter(i => i.status === 'OVERDUE').reduce((sum, i) => sum + i.amount, 0)
     
-    const previousRevenue = previousInvoices.filter(i => i.status === 'PAID').reduce((sum, i) => sum + i.amount, 0)
+    // Calculer les revenus de la période précédente manuellement
+    const previousRevenue = startDate && endDate ? 
+      paidInvoicesPreviousPeriod.filter(i => {
+        if (!i.paidDate) return false
+        const paidDate = new Date(i.paidDate)
+        const duration = new Date(endDate).getTime() - new Date(startDate).getTime()
+        const previousStart = new Date(new Date(startDate).getTime() - duration)
+        const previousEnd = new Date(startDate)
+        return paidDate >= previousStart && paidDate < previousEnd
+      }).reduce((sum, i) => sum + i.amount, 0) : 0
     const revenueGrowth = previousRevenue > 0 ? ((totalRevenue - previousRevenue) / previousRevenue) * 100 : 0
 
     // Calculs des dépenses
@@ -327,13 +358,30 @@ export async function GET(request: NextRequest) {
     }
 
     // Agrégation des données mensuelles
+    // Récupérer toutes les factures payées pour l'analyse mensuelle
+    const allPaidInvoices = await prisma.invoice.findMany({
+      where: { 
+        userId,
+        status: 'PAID',
+        paidDate: { not: null }
+      }
+    })
+    
+    allPaidInvoices.forEach(invoice => {
+      if (invoice.paidDate) {
+        const paymentDate = new Date(invoice.paidDate)
+        const monthKey = paymentDate.toLocaleDateString('fr-FR', { year: 'numeric', month: 'long' })
+        if (monthlyData[monthKey]) {
+          monthlyData[monthKey].revenue += invoice.amount
+        }
+      }
+    })
+    
+    // Pour le comptage des factures, utiliser la date de création
     invoices.forEach(invoice => {
       const invoiceDate = new Date(invoice.createdAt)
       const monthKey = invoiceDate.toLocaleDateString('fr-FR', { year: 'numeric', month: 'long' })
       if (monthlyData[monthKey]) {
-        if (invoice.status === 'PAID') {
-          monthlyData[monthKey].revenue += invoice.amount
-        }
         monthlyData[monthKey].invoicesCount++
       }
     })

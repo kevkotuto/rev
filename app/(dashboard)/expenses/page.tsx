@@ -78,6 +78,7 @@ const categories = [
   { value: 'MARKETING', label: 'Marketing' },
   { value: 'TRAINING', label: 'Formation' },
   { value: 'MEALS', label: 'Repas' },
+  { value: 'PROVIDER_PAYMENT', label: 'Paiement prestataire' },
   { value: 'OTHER', label: 'Autre' }
 ]
 
@@ -275,6 +276,7 @@ export default function ExpensesPage() {
       'MARKETING': 'bg-pink-100 text-pink-800',
       'TRAINING': 'bg-yellow-100 text-yellow-800',
       'MEALS': 'bg-orange-100 text-orange-800',
+      'PROVIDER_PAYMENT': 'bg-gray-100 text-gray-800',
       'OTHER': 'bg-gray-100 text-gray-800'
     }
     

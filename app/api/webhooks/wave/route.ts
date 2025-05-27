@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { createNotification } from "@/lib/notifications"
 import crypto from "crypto"
 
 // Interface pour les données du webhook Wave
@@ -22,189 +23,275 @@ interface WaveWebhookPayload {
   }
 }
 
-export async function POST(request: NextRequest) {
+// Fonction pour vérifier la signature Wave
+function verifyWaveSignature(
+  waveWebhookSecret: string,
+  waveSignature: string,
+  webhookBody: string
+): boolean {
   try {
-    const body = await request.text()
-    const waveSignature = request.headers.get('wave-signature')
+    const parts = waveSignature.split(",")
+    const timestamp = parts[0].split("=")[1]
     
-    // Parse du payload pour obtenir des informations de base
-    const payload: WaveWebhookPayload = JSON.parse(body)
+    const signatures = parts.slice(1).map(part => part.split("=")[1])
     
-    // Récupérer la facture pour identifier l'utilisateur
-    const invoice = await prisma.invoice.findFirst({
-      where: {
-        OR: [
-          { id: payload.data.reference },
-          { invoiceNumber: payload.data.reference },
-          { waveCheckoutId: payload.data.id }
-        ]
-      },
-      include: {
-        project: true
-      }
-    })
-
-    if (!invoice) {
-      console.error('Facture non trouvée pour la référence:', payload.data.reference)
-      return NextResponse.json(
-        { message: "Facture non trouvée" },
-        { status: 404 }
-      )
-    }
-
-    // Récupérer la configuration Wave de l'utilisateur
-    const user = await prisma.user.findUnique({
-      where: { id: invoice.userId },
-      select: {
-        waveWebhookSecret: true
-      }
-    })
-
-    // Vérification de la signature Wave selon leur documentation
-    if (user?.waveWebhookSecret && waveSignature) {
-      const elements = waveSignature.split(',')
-      const timestamp = elements.find(el => el.startsWith('t='))?.replace('t=', '')
-      const signature = elements.find(el => el.startsWith('v1='))?.replace('v1=', '')
-      
-      if (timestamp && signature) {
-        const signedPayload = `${timestamp}.${body}`
-        const expectedSignature = crypto
-          .createHmac('sha256', user.waveWebhookSecret)
-          .update(signedPayload)
-          .digest('hex')
-        
-        if (expectedSignature !== signature) {
-          console.error('Signature webhook Wave invalide')
-          return NextResponse.json(
-            { message: "Signature invalide" },
-            { status: 401 }
-          )
-        }
-        
-        console.log('✅ Signature webhook Wave vérifiée avec succès')
-      }
-    } else if (!user?.waveWebhookSecret) {
-      console.warn('⚠️ Secret webhook Wave non configuré pour cet utilisateur')
-    }
+    const payload = timestamp + webhookBody
+    const computedHmac = crypto
+      .createHmac("sha256", waveWebhookSecret)
+      .update(payload)
+      .digest("hex")
     
-    console.log('Webhook Wave traité pour la facture:', invoice.id)
-
-    console.log('Webhook Wave reçu:', payload)
-
-    // Traiter selon le type d'événement
-    switch (payload.event) {
-      case 'payment.completed':
-      case 'payment.success':
-        await handlePaymentSuccess(payload.data)
-        break
-        
-      case 'payment.failed':
-      case 'payment.cancelled':
-        await handlePaymentFailure(payload.data)
-        break
-        
-      default:
-        console.log(`Événement webhook non géré: ${payload.event}`)
-    }
-
-    return NextResponse.json({ message: "Webhook traité avec succès" })
-    
+    return signatures.includes(computedHmac)
   } catch (error) {
-    console.error('Erreur lors du traitement du webhook Wave:', error)
-    return NextResponse.json(
-      { message: "Erreur lors du traitement du webhook" },
-      { status: 500 }
-    )
+    console.error("Erreur lors de la vérification de signature:", error)
+    return false
   }
 }
 
-async function handlePaymentSuccess(paymentData: WaveWebhookPayload['data']) {
+// Fonction pour traiter les événements Wave
+async function processWaveEvent(eventType: string, eventData: any) {
   try {
-    // Chercher la facture correspondante par référence
-    const invoice = await prisma.invoice.findFirst({
-      where: {
-        OR: [
-          { id: paymentData.reference },
-          { invoiceNumber: paymentData.reference },
-          { waveCheckoutId: paymentData.id }
-        ]
-      },
-      include: {
-        project: true
-      }
-    })
-
-    if (!invoice) {
-      console.error(`Facture non trouvée pour la référence: ${paymentData.reference}`)
-      return
+    switch (eventType) {
+      case 'checkout.session.completed':
+        await handleCheckoutCompleted(eventData)
+        break
+      
+      case 'checkout.session.payment_failed':
+        await handleCheckoutFailed(eventData)
+        break
+      
+      case 'merchant.payment_received':
+        await handleMerchantPaymentReceived(eventData)
+        break
+      
+      case 'b2b.payment_received':
+        await handleB2BPaymentReceived(eventData)
+        break
+      
+      case 'b2b.payment_failed':
+        await handleB2BPaymentFailed(eventData)
+        break
+      
+      default:
+        console.log(`Type d'événement Wave non géré: ${eventType}`)
     }
+  } catch (error) {
+    console.error(`Erreur lors du traitement de l'événement ${eventType}:`, error)
+  }
+}
 
+// Gestionnaires d'événements spécifiques
+async function handleCheckoutCompleted(data: any) {
+  // Trouver la facture correspondante
+  const invoice = await prisma.invoice.findFirst({
+    where: {
+      waveCheckoutId: data.id
+    },
+    include: {
+      user: true,
+      project: true
+    }
+  })
+
+  if (invoice) {
     // Mettre à jour le statut de la facture
     await prisma.invoice.update({
       where: { id: invoice.id },
       data: {
-        status: "PAID",
-        paidDate: new Date(paymentData.updated_at),
-        waveCheckoutId: paymentData.id
+        status: 'PAID',
+        paidDate: new Date(data.when_completed)
       }
     })
 
-    // Si c'est une facture de projet, créer une entrée de revenus
-    if (invoice.projectId && invoice.type === "INVOICE") {
-      await prisma.expense.create({
-        data: {
-          description: `Paiement reçu - Facture ${invoice.invoiceNumber}`,
-          amount: paymentData.amount,
-          category: "PAYMENT_RECEIVED",
-          type: "PROJECT",
-          projectId: invoice.projectId,
-          userId: invoice.userId,
-          date: new Date(paymentData.updated_at)
-        }
-      })
-    }
-
-    console.log(`Paiement confirmé pour la facture ${invoice.invoiceNumber}`)
-    
-  } catch (error) {
-    console.error('Erreur lors du traitement du paiement réussi:', error)
+    // Créer une notification
+    await createNotification({
+      userId: invoice.userId,
+      title: "Paiement reçu !",
+      message: `La facture ${invoice.invoiceNumber} de ${data.amount} ${data.currency} a été payée avec succès.`,
+      type: "WAVE_CHECKOUT_COMPLETED",
+      relatedType: "invoice",
+      relatedId: invoice.id,
+      actionUrl: `/invoices/${invoice.id}`,
+      metadata: {
+        amount: data.amount,
+        currency: data.currency,
+        transactionId: data.transaction_id,
+        clientReference: data.client_reference
+      }
+    })
   }
 }
 
-async function handlePaymentFailure(paymentData: WaveWebhookPayload['data']) {
-  try {
-    // Chercher la facture correspondante
-    const invoice = await prisma.invoice.findFirst({
-      where: {
-        OR: [
-          { id: paymentData.reference },
-          { invoiceNumber: paymentData.reference },
-          { waveCheckoutId: paymentData.id }
-        ]
-      }
-    })
-
-    if (!invoice) {
-      console.error(`Facture non trouvée pour la référence: ${paymentData.reference}`)
-      return
+async function handleCheckoutFailed(data: any) {
+  const invoice = await prisma.invoice.findFirst({
+    where: {
+      waveCheckoutId: data.id
+    },
+    include: {
+      user: true
     }
+  })
 
-    // Mettre à jour le statut selon le cas
-    const newStatus = paymentData.status === 'cancelled' ? 'CANCELLED' : 'OVERDUE'
-    
-    await prisma.invoice.update({
-      where: { id: invoice.id },
-      data: {
-        status: newStatus,
-        waveCheckoutId: paymentData.id
+  if (invoice) {
+    await createNotification({
+      userId: invoice.userId,
+      title: "Échec de paiement",
+      message: `Le paiement de la facture ${invoice.invoiceNumber} a échoué. Montant: ${data.amount} ${data.currency}`,
+      type: "WAVE_CHECKOUT_FAILED",
+      relatedType: "invoice",
+      relatedId: invoice.id,
+      actionUrl: `/invoices/${invoice.id}`,
+      metadata: {
+        amount: data.amount,
+        currency: data.currency,
+        error: data.last_payment_error
       }
     })
-
-    console.log(`Paiement échoué pour la facture ${invoice.invoiceNumber} - Statut: ${newStatus}`)
-    
-  } catch (error) {
-    console.error('Erreur lors du traitement du paiement échoué:', error)
   }
+}
+
+async function handleMerchantPaymentReceived(data: any) {
+  // Trouver l'utilisateur par merchant_id ou autre critère
+  // Pour l'instant, on notifie tous les utilisateurs avec Wave configuré
+  const users = await prisma.user.findMany({
+    where: {
+      waveApiKey: { not: null }
+    }
+  })
+
+  for (const user of users) {
+    await createNotification({
+      userId: user.id,
+      title: "Paiement marchand reçu",
+      message: `Nouveau paiement reçu de ${data.sender_mobile}: ${data.amount} ${data.currency}`,
+      type: "WAVE_PAYMENT_RECEIVED",
+      relatedType: "wave_transaction",
+      relatedId: data.id,
+      actionUrl: "/wave-transactions",
+      metadata: {
+        amount: data.amount,
+        currency: data.currency,
+        senderMobile: data.sender_mobile,
+        merchantId: data.merchant_id,
+        customFields: data.custom_fields
+      }
+    })
+  }
+}
+
+async function handleB2BPaymentReceived(data: any) {
+  const users = await prisma.user.findMany({
+    where: {
+      waveApiKey: { not: null }
+    }
+  })
+
+  for (const user of users) {
+    await createNotification({
+      userId: user.id,
+      title: "Paiement B2B reçu",
+      message: `Paiement B2B reçu: ${data.amount} ${data.currency}`,
+      type: "WAVE_PAYMENT_RECEIVED",
+      relatedType: "wave_transaction",
+      relatedId: data.id,
+      actionUrl: "/wave-transactions",
+      metadata: {
+        amount: data.amount,
+        currency: data.currency,
+        senderId: data.sender_id,
+        clientReference: data.client_reference
+      }
+    })
+  }
+}
+
+async function handleB2BPaymentFailed(data: any) {
+  const users = await prisma.user.findMany({
+    where: {
+      waveApiKey: { not: null }
+    }
+  })
+
+  for (const user of users) {
+    await createNotification({
+      userId: user.id,
+      title: "Échec de paiement B2B",
+      message: `Paiement B2B échoué: ${data.amount} ${data.currency}. Raison: ${data.last_payment_error?.message || 'Erreur inconnue'}`,
+      type: "WAVE_PAYMENT_FAILED",
+      relatedType: "wave_transaction",
+      relatedId: data.id,
+      actionUrl: "/wave-transactions",
+      metadata: {
+        amount: data.amount,
+        currency: data.currency,
+        senderId: data.sender_id,
+        clientReference: data.client_reference,
+        error: data.last_payment_error
+      }
+    })
+  }
+}
+
+export async function POST(request: NextRequest) {
+  // Répondre immédiatement avec un code de succès (comme recommandé par Wave)
+  const response = NextResponse.json({ received: true }, { status: 200 })
+
+  // Traitement asynchrone de l'événement
+  setImmediate(async () => {
+    try {
+      const waveSignature = request.headers.get('wave-signature')
+      const webhookBody = await request.text()
+
+      if (!waveSignature) {
+        console.error("Signature Wave manquante")
+        return
+      }
+
+      // Parser le JSON
+      let eventData
+      try {
+        eventData = JSON.parse(webhookBody)
+      } catch (error) {
+        console.error("Corps du webhook invalide:", error)
+        return
+      }
+
+      // Trouver l'utilisateur avec le secret webhook correspondant
+      // Pour simplifier, on utilise le premier utilisateur avec un secret configuré
+      // En production, vous devriez avoir une logique plus sophistiquée
+      const users = await prisma.user.findMany({
+        where: {
+          waveWebhookSecret: { not: null }
+        }
+      })
+
+      let validSignature = false
+      let targetUser = null
+
+      for (const user of users) {
+        if (user.waveWebhookSecret && verifyWaveSignature(user.waveWebhookSecret, waveSignature, webhookBody)) {
+          validSignature = true
+          targetUser = user
+          break
+        }
+      }
+
+      if (!validSignature) {
+        console.error("Signature Wave invalide")
+        return
+      }
+
+      console.log(`Événement Wave reçu: ${eventData.type}`, eventData)
+
+      // Traiter l'événement
+      await processWaveEvent(eventData.type, eventData.data)
+
+    } catch (error) {
+      console.error("Erreur lors du traitement du webhook Wave:", error)
+    }
+  })
+
+  return response
 }
 
 // GET - Endpoint pour tester le webhook (optionnel)

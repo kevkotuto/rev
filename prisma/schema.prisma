@@ -68,6 +68,9 @@ model User {
   waveWebhookUrl String?
   waveWebhookSecret String?
   
+  // Préférences de notification
+  emailNotifications Boolean @default(true)
+  
   accounts      Account[]
   sessions      Session[]
   clients       Client[]
@@ -82,6 +85,7 @@ model User {
   emailTemplates EmailTemplate[]
   notifications Notification[]
   providerPayments ProviderPayment[]
+  waveTransactionAssignments WaveTransactionAssignment[]
   
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -110,6 +114,7 @@ model Client {
   projects    Project[]
   emails      Email[]
   files       File[]
+  waveTransactionAssignments WaveTransactionAssignment[]
   
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -139,6 +144,7 @@ model Project {
   tasks       Task[]
   files       File[]
   emails      Email[]
+  waveTransactionAssignments WaveTransactionAssignment[]
   
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
@@ -188,6 +194,7 @@ model Provider {
   projectProviders ProjectProvider[]
   files       File[]
   payments    ProviderPayment[] // Historique des paiements
+  waveTransactionAssignments WaveTransactionAssignment[]
   
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
@@ -267,8 +274,9 @@ model Invoice {
   
   userId        String
   user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  emails        Email[]
   items         InvoiceItem[]
+  emails        Email[]
+  waveTransactionAssignment WaveTransactionAssignment?
   
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
@@ -315,6 +323,8 @@ model Expense {
   
   userId      String
   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  waveTransactionAssignment WaveTransactionAssignment?
   
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
@@ -510,25 +520,88 @@ enum FileCategory {
 }
 
 model Notification {
-  id          String   @id @default(cuid())
-  title       String
-  message     String
-  type        NotificationType @default(INFO)
-  isRead      Boolean  @default(false)
-  relatedType String?  // "expense", "invoice", etc.
-  relatedId   String?  // ID de l'objet lié
+  id        String             @id @default(cuid())
+  title     String
+  message   String
+  type      NotificationType   @default(INFO)
+  isRead    Boolean            @default(false)
   
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Métadonnées pour la notification
+  actionUrl String?
+  metadata  Json?
   
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  // Relations optionnelles pour lier à des entités
+  relatedType String? // 'project', 'invoice', 'expense', 'wave_transaction', etc.
+  relatedId   String?
+  
+  // Email envoyé
+  emailSent Boolean @default(false)
+  emailSentAt DateTime?
+  
+  userId    String
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+}
+
+model WaveTransactionAssignment {
+  id                String    @id @default(cuid())
+  transactionId     String    // ID de la transaction Wave
+  type              String    // 'revenue' | 'expense'
+  description       String
+  notes             String?
+  amount            Float
+  fee               Float     @default(0)
+  currency          String    @default("XOF")
+  timestamp         DateTime  // Date de la transaction Wave
+  counterpartyName  String?
+  counterpartyMobile String?
+  isReversal        Boolean   @default(false)
+  
+  // Relations avec les entités locales
+  projectId         String?
+  project           Project?  @relation(fields: [projectId], references: [id])
+  
+  clientId          String?
+  client            Client?   @relation(fields: [clientId], references: [id])
+  
+  providerId        String?
+  provider          Provider? @relation(fields: [providerId], references: [id])
+  
+  // Relations avec les transactions comptables créées
+  invoiceId         String?   @unique
+  invoice           Invoice?  @relation(fields: [invoiceId], references: [id])
+  
+  expenseId         String?   @unique
+  expense           Expense?  @relation(fields: [expenseId], references: [id])
+  
+  // Données Wave complètes (JSON)
+  waveData          Json?
+  
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  @@unique([userId, transactionId])
 }
 
 enum NotificationType {
   INFO
   WARNING
-  SUCCESS
   ERROR
+  SUCCESS
+  WAVE_PAYMENT_RECEIVED
+  WAVE_PAYMENT_FAILED
+  WAVE_CHECKOUT_COMPLETED
+  WAVE_CHECKOUT_FAILED
+  INVOICE_PAID
+  INVOICE_OVERDUE
+  PROJECT_DEADLINE
+  TASK_DUE
   SUBSCRIPTION_REMINDER
+  PROVIDER_PAYMENT_COMPLETED
+  PROVIDER_PAYMENT_FAILED
 }

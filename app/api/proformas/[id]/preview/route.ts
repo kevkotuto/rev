@@ -117,9 +117,9 @@ function generateProformaPreviewHTML(proforma: any, user: any, companySettings: 
         }
         
         body {
-          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
           line-height: 1.6;
-          color: #333;
+          color: #0f172a;
           background: #f8fafc;
           padding: 20px;
         }
@@ -128,256 +128,385 @@ function generateProformaPreviewHTML(proforma: any, user: any, companySettings: 
           max-width: 900px;
           margin: 0 auto;
           background: white;
-          border-radius: 12px;
-          box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+          border-radius: 16px;
+          box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
           overflow: hidden;
         }
         
         .preview-header {
-          background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+          background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
           color: white;
-          padding: 20px;
+          padding: 24px;
           text-align: center;
         }
         
         .preview-header h1 {
-          font-size: 24px;
-          margin-bottom: 5px;
+          font-size: 28px;
+          font-weight: 700;
+          margin-bottom: 8px;
         }
         
         .preview-header p {
           opacity: 0.9;
+          font-size: 16px;
         }
         
         .document-container {
-          padding: 40px;
+          padding: 48px;
         }
         
         .header {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          margin-bottom: 40px;
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 40px;
+          margin-bottom: 48px;
+          padding-bottom: 24px;
           border-bottom: 3px solid #3b82f6;
-          padding-bottom: 20px;
-        }
-        
-        .company-info {
-          flex: 1;
-        }
-        
-        .company-logo {
-          max-width: 150px;
-          max-height: 80px;
-          margin-bottom: 15px;
         }
         
         .company-info h2 {
           color: #3b82f6;
-          font-size: 28px;
-          margin-bottom: 10px;
+          font-size: 32px;
+          font-weight: 700;
+          margin-bottom: 16px;
         }
         
         .company-info p {
-          margin: 5px 0;
-          color: #666;
+          margin: 8px 0;
+          color: #64748b;
+          font-size: 15px;
         }
         
         .company-details {
-          margin-top: 10px;
-          font-size: 14px;
+          margin-top: 16px;
+          font-size: 13px;
+          color: #64748b;
+        }
+        
+        .company-details p {
+          margin: 4px 0;
         }
         
         .proforma-info {
-          text-align: right;
-          flex-shrink: 0;
+          background: #f1f5f9;
+          padding: 24px;
+          border-radius: 12px;
+          border-left: 4px solid #3b82f6;
+          min-width: 280px;
         }
         
         .proforma-info h3 {
           color: #3b82f6;
           font-size: 24px;
-          margin-bottom: 10px;
+          font-weight: 700;
+          margin-bottom: 16px;
         }
         
         .proforma-info p {
-          margin: 5px 0;
+          margin: 8px 0;
+          font-size: 15px;
         }
         
         .client-section {
-          margin: 40px 0;
+          margin: 48px 0;
         }
         
         .client-section h4 {
           color: #3b82f6;
-          margin-bottom: 15px;
-          font-size: 18px;
+          margin-bottom: 20px;
+          font-size: 20px;
+          font-weight: 600;
         }
         
         .client-info {
           background: #f8fafc;
-          padding: 20px;
-          border-radius: 8px;
+          padding: 24px;
+          border-radius: 12px;
           border-left: 4px solid #3b82f6;
         }
         
+        .client-info p {
+          margin: 8px 0;
+          font-size: 15px;
+        }
+        
         .details-section {
-          margin: 40px 0;
+          margin: 48px 0;
+        }
+        
+        .section-title {
+          color: #0f172a;
+          font-size: 20px;
+          font-weight: 600;
+          margin-bottom: 24px;
+          padding-bottom: 8px;
+          border-bottom: 2px solid #e2e8f0;
         }
         
         .details-table {
           width: 100%;
           border-collapse: collapse;
-          margin: 20px 0;
-          border-radius: 8px;
+          border-radius: 12px;
           overflow: hidden;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-        }
-        
-        .details-table th,
-        .details-table td {
-          padding: 15px;
-          text-align: left;
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         }
         
         .details-table th {
-          background: #3b82f6;
+          background: linear-gradient(135deg, #475569 0%, #334155 100%);
           color: white;
+          padding: 20px 16px;
+          text-align: left;
           font-weight: 600;
+          font-size: 14px;
         }
         
         .details-table td {
-          background: white;
+          padding: 20px 16px;
           border-bottom: 1px solid #e2e8f0;
+          font-size: 15px;
+        }
+        
+        .details-table tr:nth-child(even) {
+          background: #f9fafb;
         }
         
         .details-table tr:last-child td {
           border-bottom: none;
         }
         
-        .service-row {
-          border-bottom: 1px solid #f1f5f9;
+        .service-description {
+          font-weight: 600;
+          color: #0f172a;
         }
         
-        .service-row:last-child {
-          border-bottom: 2px solid #3b82f6;
+        .service-details {
+          color: #64748b;
+          font-size: 14px;
+          margin-top: 4px;
         }
         
-        .total-section {
-          margin: 40px 0;
+        .text-center {
+          text-align: center;
+        }
+        
+        .text-right {
           text-align: right;
         }
         
+        .font-bold {
+          font-weight: 600;
+        }
+        
+        .total-section {
+          margin: 48px 0;
+          display: flex;
+          justify-content: flex-end;
+        }
+        
         .total-box {
-          display: inline-block;
-          background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+          background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
           color: white;
-          padding: 25px;
-          border-radius: 12px;
-          min-width: 280px;
-          box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+          padding: 32px;
+          border-radius: 16px;
+          min-width: 300px;
+          text-align: center;
+          box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.3);
         }
         
         .total-box h4 {
           font-size: 18px;
-          margin-bottom: 10px;
+          margin-bottom: 12px;
           opacity: 0.9;
+          font-weight: 600;
         }
         
         .total-box .amount {
-          font-size: 32px;
-          font-weight: bold;
+          font-size: 36px;
+          font-weight: 700;
+          letter-spacing: -0.02em;
         }
         
         .notes-section {
-          margin: 40px 0;
-          padding: 20px;
-          background: #f8fafc;
-          border-radius: 8px;
-          border-left: 4px solid #10b981;
+          margin: 48px 0;
+          padding: 24px;
+          background: #f0fdf4;
+          border-radius: 12px;
+          border-left: 4px solid #22c55e;
         }
         
         .notes-section h4 {
-          color: #10b981;
-          margin-bottom: 15px;
+          color: #15803d;
+          margin-bottom: 16px;
+          font-size: 18px;
+          font-weight: 600;
+        }
+        
+        .notes-section p {
+          color: #166534;
+          font-size: 15px;
+          line-height: 1.7;
+        }
+        
+        .validity-section {
+          margin: 48px 0;
+          padding: 24px;
+          background: #fef3c7;
+          border-radius: 12px;
+          border-left: 4px solid #f59e0b;
+          text-align: center;
+        }
+        
+        .validity-section h4 {
+          color: #d97706;
+          margin-bottom: 12px;
+          font-size: 18px;
+          font-weight: 600;
+        }
+        
+        .validity-section p {
+          color: #92400e;
+          font-size: 16px;
+          font-weight: 500;
+        }
+        
+        .conditions-section {
+          margin: 48px 0;
+          padding: 24px;
+          background: #f1f5f9;
+          border-radius: 12px;
+        }
+        
+        .conditions-section h4 {
+          color: #475569;
+          margin-bottom: 16px;
+          font-size: 18px;
+          font-weight: 600;
+        }
+        
+        .conditions-list {
+          color: #64748b;
+          font-size: 14px;
+          line-height: 1.7;
+        }
+        
+        .conditions-list li {
+          margin: 8px 0;
         }
         
         .footer {
-          margin-top: 60px;
-          padding: 20px;
+          margin-top: 64px;
+          padding: 32px 24px;
           background: #f8fafc;
-          border-radius: 8px;
+          border-radius: 12px;
           border-top: 3px solid #3b82f6;
           text-align: center;
-          color: #666;
-          font-size: 14px;
         }
         
-        .footer .validity {
-          font-weight: 600;
-          color: #3b82f6;
-          margin-bottom: 10px;
+        .footer p {
+          color: #64748b;
+          font-size: 15px;
+          margin: 8px 0;
         }
         
-        .footer .company-footer {
-          margin-top: 15px;
-          padding-top: 15px;
+        .company-footer {
+          margin-top: 20px;
+          padding-top: 20px;
           border-top: 1px solid #e2e8f0;
-          font-size: 12px;
+        }
+        
+        .company-footer p {
+          font-size: 13px;
+          margin: 4px 0;
+        }
+        
+        .signature-section {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 48px;
+          margin-top: 48px;
+          padding: 24px;
+          border: 2px dashed #cbd5e1;
+          border-radius: 12px;
+        }
+        
+        .signature-box {
+          text-align: center;
+          padding: 24px;
+        }
+        
+        .signature-box h5 {
+          color: #475569;
+          font-size: 16px;
+          font-weight: 600;
+          margin-bottom: 40px;
+        }
+        
+        .signature-line {
+          border-bottom: 2px solid #cbd5e1;
+          width: 200px;
+          margin: 0 auto;
+          height: 40px;
         }
         
         .actions-bar {
           position: fixed;
-          bottom: 20px;
-          right: 20px;
+          bottom: 24px;
+          right: 24px;
           display: flex;
-          gap: 10px;
+          gap: 12px;
           z-index: 1000;
         }
         
         .action-btn {
-          background: #3b82f6;
+          background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
           color: white;
           border: none;
-          padding: 12px 20px;
-          border-radius: 8px;
+          padding: 16px 24px;
+          border-radius: 12px;
           cursor: pointer;
           font-weight: 600;
+          font-size: 14px;
           text-decoration: none;
           display: inline-flex;
           align-items: center;
           gap: 8px;
           box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-          transition: all 0.2s;
+          transition: all 0.2s ease;
         }
         
         .action-btn:hover {
-          background: #1d4ed8;
           transform: translateY(-2px);
-          box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
+          box-shadow: 0 8px 20px rgba(59, 130, 246, 0.4);
         }
         
         .action-btn.secondary {
-          background: #6b7280;
+          background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+          box-shadow: 0 4px 12px rgba(107, 114, 128, 0.3);
         }
         
         .action-btn.secondary:hover {
-          background: #4b5563;
+          box-shadow: 0 8px 20px rgba(107, 114, 128, 0.4);
         }
         
         @media (max-width: 768px) {
-          .header {
-            flex-direction: column;
-            gap: 20px;
+          .document-container {
+            padding: 24px;
           }
           
-          .proforma-info {
-            text-align: left;
+          .header {
+            grid-template-columns: 1fr;
+            gap: 24px;
+          }
+          
+          .signature-section {
+            grid-template-columns: 1fr;
+            gap: 24px;
           }
           
           .actions-bar {
             position: static;
             justify-content: center;
-            margin-top: 20px;
+            margin-top: 24px;
           }
         }
       </style>
@@ -385,7 +514,7 @@ function generateProformaPreviewHTML(proforma: any, user: any, companySettings: 
     <body>
       <div class="preview-container">
         <div class="preview-header">
-          <h1>Prévisualisation du Proforma</h1>
+          <h1>Prévisualisation du Devis</h1>
           <p>Document généré le ${formatDate(new Date())}</p>
         </div>
         
@@ -393,7 +522,6 @@ function generateProformaPreviewHTML(proforma: any, user: any, companySettings: 
           <!-- En-tête -->
           <div class="header">
             <div class="company-info">
-              ${companyLogo ? `<img src="${companyLogo}" alt="Logo" class="company-logo">` : ''}
               <h2>${companyName}</h2>
               ${companyAddress ? `<p>📍 ${companyAddress}</p>` : ''}
               ${companyPhone ? `<p>📞 ${companyPhone}</p>` : ''}
@@ -408,7 +536,7 @@ function generateProformaPreviewHTML(proforma: any, user: any, companySettings: 
               ` : ''}
             </div>
             <div class="proforma-info">
-              <h3>PROFORMA</h3>
+              <h3>DEVIS PROFORMA</h3>
               <p><strong>N°:</strong> ${proforma.invoiceNumber}</p>
               <p><strong>Date:</strong> ${formatDate(proforma.createdAt)}</p>
               ${proforma.dueDate ? `<p><strong>Échéance:</strong> ${formatDate(proforma.dueDate)}</p>` : ''}
@@ -417,7 +545,7 @@ function generateProformaPreviewHTML(proforma: any, user: any, companySettings: 
           
           <!-- Informations client -->
           <div class="client-section">
-            <h4>Facturé à :</h4>
+            <h4>Client :</h4>
             <div class="client-info">
               ${proforma.clientName ? `<p><strong>${proforma.clientName}</strong></p>` : ''}
               ${proforma.project?.client?.name && !proforma.clientName ? `<p><strong>${proforma.project.client.name}</strong></p>` : ''}
@@ -432,37 +560,40 @@ function generateProformaPreviewHTML(proforma: any, user: any, companySettings: 
           
           <!-- Détails du devis -->
           <div class="details-section">
+            <h4 class="section-title">Détail des prestations</h4>
             <table class="details-table">
               <thead>
                 <tr>
                   <th>Description</th>
-                  <th style="text-align: center; width: 100px;">Qté</th>
-                  <th style="text-align: right; width: 120px;">Prix unitaire</th>
-                  <th style="text-align: right; width: 150px;">Total</th>
+                  <th class="text-center" style="width: 100px;">Qté</th>
+                  <th class="text-right" style="width: 120px;">Prix unitaire</th>
+                  <th class="text-right" style="width: 150px;">Total</th>
                 </tr>
               </thead>
               <tbody>
                 ${proforma.project?.services && proforma.project.services.length > 0 ? 
                   proforma.project.services.map((service: any) => `
-                    <tr class="service-row">
+                    <tr>
                       <td>
-                        <strong>${service.name}</strong>
-                        ${service.description ? `<br><small style="color: #666;">${service.description}</small>` : ''}
-                        ${service.unit ? `<br><small style="color: #888;">Unité: ${service.unit}</small>` : ''}
+                        <div class="service-description">${service.name}</div>
+                        ${service.description ? `<div class="service-details">${service.description}</div>` : ''}
+                        ${service.unit ? `<div class="service-details">Unité: ${service.unit}</div>` : ''}
                       </td>
-                      <td style="text-align: center;">${service.quantity}</td>
-                      <td style="text-align: right;">${formatCurrency(service.amount)}</td>
-                      <td style="text-align: right; font-weight: 600;">${formatCurrency(service.amount * service.quantity)}</td>
+                      <td class="text-center">${service.quantity || 1}</td>
+                      <td class="text-right">${formatCurrency(service.amount)}</td>
+                      <td class="text-right font-bold">${formatCurrency((service.amount || 0) * (service.quantity || 1))}</td>
                     </tr>
                   `).join('') : `
                     <tr>
                       <td>
-                        ${proforma.project ? `<strong>Projet:</strong> ${proforma.project.name}` : 'Prestation'}
-                        ${proforma.project?.description ? `<br><small style="color: #666;">${proforma.project.description}</small>` : ''}
+                        <div class="service-description">
+                          ${proforma.project ? `Projet: ${proforma.project.name}` : 'Prestation'}
+                        </div>
+                        ${proforma.project?.description ? `<div class="service-details">${proforma.project.description}</div>` : ''}
                       </td>
-                      <td style="text-align: center;">1</td>
-                      <td style="text-align: right;">${formatCurrency(proforma.amount)}</td>
-                      <td style="text-align: right; font-weight: 600;">${formatCurrency(proforma.amount)}</td>
+                      <td class="text-center">1</td>
+                      <td class="text-right">${formatCurrency(proforma.amount)}</td>
+                      <td class="text-right font-bold">${formatCurrency(proforma.amount)}</td>
                     </tr>
                   `
                 }
@@ -478,6 +609,12 @@ function generateProformaPreviewHTML(proforma: any, user: any, companySettings: 
             </div>
           </div>
           
+          <!-- Validité du devis -->
+          <div class="validity-section">
+            <h4>⏰ Validité du devis</h4>
+            <p>${getValidityText()}</p>
+          </div>
+          
           <!-- Notes -->
           ${proforma.notes ? `
             <div class="notes-section">
@@ -486,9 +623,33 @@ function generateProformaPreviewHTML(proforma: any, user: any, companySettings: 
             </div>
           ` : ''}
           
+          <!-- Conditions -->
+          <div class="conditions-section">
+            <h4>📋 Conditions générales</h4>
+            <ul class="conditions-list">
+              <li>• Ce devis devient un contrat dès acceptation et signature.</li>
+              <li>• Les travaux débuteront après réception de l'accord écrit du client.</li>
+              <li>• Toute modification du cahier des charges fera l'objet d'un avenant.</li>
+              <li>• Paiement selon les modalités convenues entre les parties.</li>
+            </ul>
+          </div>
+          
+          <!-- Signature -->
+          <div class="signature-section">
+            <div class="signature-box">
+              <h5>Bon pour accord</h5>
+              <div class="signature-line"></div>
+              <p style="margin-top: 12px; color: #64748b; font-size: 14px;">Signature du client</p>
+            </div>
+            <div class="signature-box">
+              <h5>Le prestataire</h5>
+              <div class="signature-line"></div>
+              <p style="margin-top: 12px; color: #64748b; font-size: 14px;">${companyName}</p>
+            </div>
+          </div>
+          
           <!-- Pied de page -->
           <div class="footer">
-            <div class="validity">${getValidityText()}</div>
             <p>Merci de votre confiance ! 🙏</p>
             
             ${companySettings ? `

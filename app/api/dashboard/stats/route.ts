@@ -87,6 +87,7 @@ export async function GET(request: NextRequest) {
       totalProviders,
       totalTasks,
       totalFiles,
+      pendingRevenue,
       recentActivities,
       projectsWithDates
     ] = await Promise.all([
@@ -178,6 +179,18 @@ export async function GET(request: NextRequest) {
       // Nombre total de fichiers
       prisma.file.count({
         where: { userId }
+      }),
+
+      // Revenus en attente (factures non payées)
+      prisma.invoice.aggregate({
+        where: {
+          userId,
+          status: { in: ["PENDING", "OVERDUE"] },
+          ...dateFilter
+        },
+        _sum: {
+          amount: true
+        }
       }),
 
       // Activités récentes (dernières factures et projets)
@@ -346,6 +359,7 @@ export async function GET(request: NextRequest) {
         totalRevenue: totalRevenue._sum.amount || 0,
         totalExpenses: totalExpenseAmount._sum.amount || 0,
         netProfit: (totalRevenue._sum.amount || 0) - (totalExpenseAmount._sum.amount || 0),
+        pendingRevenue: pendingRevenue._sum.amount || 0,
         revenueByMonth
       },
       recentActivities: {

@@ -122,6 +122,9 @@ export async function PUT(
       )
     }
 
+    // Récupérer l'état précédent pour savoir si on doit créer/supprimer une dépense
+    const wasAlreadyPaid = projectProvider.isPaid
+
     // Mise à jour avec gestion des valeurs null
     const updateData: any = {
       isPaid: Boolean(isPaid)
@@ -137,20 +140,66 @@ export async function PUT(
       updateData.paidDate = null
     }
 
-    const updatedProjectProvider = await prisma.projectProvider.update({
-      where: { id },
-      data: updateData,
-      include: {
-        project: true,
-        provider: true
+    // Commencer une transaction pour mettre à jour le prestataire et gérer la dépense
+    const result = await prisma.$transaction(async (tx) => {
+      // Mettre à jour le prestataire
+      const updatedProjectProvider = await tx.projectProvider.update({
+        where: { id },
+        data: updateData,
+        include: {
+          project: true,
+          provider: true
+        }
+      })
+
+      // Gérer la création/suppression de la dépense
+      if (isPaid && !wasAlreadyPaid) {
+        // Créer une dépense pour ce paiement
+        await tx.expense.create({
+          data: {
+            description: `Paiement prestataire - ${projectProvider.provider.name} (${projectProvider.project.name})`,
+            amount: projectProvider.amount,
+            category: 'PROVIDER_PAYMENT',
+            type: 'PROJECT',
+            date: updateData.paidDate || new Date(),
+            notes: `Paiement effectué par ${updateData.paymentMethod} pour le projet "${projectProvider.project.name}"`,
+            projectId: projectProvider.projectId,
+            userId: session.user.id
+          }
+        })
+      } else if (!isPaid && wasAlreadyPaid) {
+        // Supprimer la dépense correspondante si elle existe
+        const existingExpense = await tx.expense.findFirst({
+          where: {
+            userId: session.user.id,
+            projectId: projectProvider.projectId,
+            description: {
+              contains: `Paiement prestataire - ${projectProvider.provider.name}`
+            },
+            amount: projectProvider.amount
+          }
+        })
+
+        if (existingExpense) {
+          await tx.expense.delete({
+            where: { id: existingExpense.id }
+          })
+        }
       }
+
+      return updatedProjectProvider
     })
 
     const statusMessage = isPaid ? 'payé' : 'non payé'
+    const expenseMessage = isPaid && !wasAlreadyPaid 
+      ? ' et une dépense a été créée automatiquement'
+      : !isPaid && wasAlreadyPaid 
+        ? ' et la dépense correspondante a été supprimée'
+        : ''
 
     return NextResponse.json({
-      projectProvider: updatedProjectProvider,
-      message: `Prestataire marqué comme ${statusMessage} avec succès`
+      projectProvider: result,
+      message: `Prestataire marqué comme ${statusMessage} avec succès${expenseMessage}`
     })
 
   } catch (error) {

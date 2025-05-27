@@ -105,7 +105,7 @@ interface Project {
       name: string
       role?: string
       photo?: string
-      waveRecipientId?: string
+      phone?: string
     }
   }>
   createdAt: string
@@ -130,7 +130,6 @@ interface Provider {
   phone?: string
   role?: string
   photo?: string
-  waveRecipientId?: string
 }
 
 interface Expense {
@@ -1347,7 +1346,7 @@ export default function ProjectDetailPage() {
                         <Banknote className="w-4 h-4 mr-2" />
                         Marquer payé
                       </Button>
-                      {pp.provider.waveRecipientId && (
+                      {pp.provider.phone && (
                         <Button
                           size="sm"
                           className="flex-1"

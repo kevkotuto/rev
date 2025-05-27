@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
-import puppeteer from "puppeteer"
+import { jsPDF } from "jspdf"
+import autoTable from "jspdf-autotable"
 
 export async function GET(
   request: NextRequest,
@@ -53,32 +54,9 @@ export async function GET(
       })
     ])
 
-    // Générer le HTML du proforma
-    const html = generateProformaHTML(proforma, user, companySettings)
+    // Générer le PDF avec le même design que les factures
+    const pdf = generateModernProformaPDF(proforma, user, companySettings)
 
-    // Générer le PDF avec Puppeteer
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    })
-    
-    const page = await browser.newPage()
-    await page.setContent(html, { waitUntil: 'networkidle0' })
-    
-    const pdf = await page.pdf({
-      format: 'A4',
-      printBackground: true,
-      margin: {
-        top: '20mm',
-        right: '15mm',
-        bottom: '20mm',
-        left: '15mm'
-      }
-    })
-    
-    await browser.close()
-
-    // Retourner le PDF
     return new NextResponse(pdf, {
       headers: {
         'Content-Type': 'application/pdf',
@@ -95,7 +73,20 @@ export async function GET(
   }
 }
 
-function generateProformaHTML(proforma: any, user: any, companySettings: any) {
+function generateModernProformaPDF(proforma: any, user: any, companySettings: any) {
+  const doc = new jsPDF()
+  
+  // Configuration couleurs modernes (identique aux factures)
+  const colors = {
+    primary: [59, 130, 246] as [number, number, number], // blue-500
+    secondary: [71, 85, 105] as [number, number, number], // slate-600
+    accent: [34, 197, 94] as [number, number, number], // green-500
+    text: [15, 23, 42] as [number, number, number], // slate-900
+    muted: [100, 116, 139] as [number, number, number], // slate-500
+    light: [248, 250, 252] as [number, number, number], // slate-50
+    white: [255, 255, 255] as [number, number, number]
+  }
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('fr-FR', {
       style: 'currency',
@@ -115,335 +106,309 @@ function generateProformaHTML(proforma: any, user: any, companySettings: any) {
     } else {
       const validityDate = new Date(proforma.createdAt)
       validityDate.setDate(validityDate.getDate() + 30)
-      return `Ce devis est valable jusqu'au ${formatDate(validityDate)} (30 jours à compter de la date d'émission).`
+      return `Ce devis est valable jusqu'au ${formatDate(validityDate)} (30 jours).`
     }
   }
 
-  // Informations de l'entreprise (priorité aux paramètres d'entreprise)
-  const companyName = companySettings?.name || user?.companyName || user?.name || 'Mon Entreprise'
-  const companyAddress = companySettings?.address || user?.address
-  const companyPhone = companySettings?.phone || user?.phone
-  const companyEmail = companySettings?.email || user?.email
-  const companyLogo = companySettings?.logo || user?.companyLogo
+  let yPos = 20
+  const pageWidth = doc.internal.pageSize.width
+  const margin = 20
 
-  return `
-    <!DOCTYPE html>
-    <html lang="fr">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Proforma ${proforma.invoiceNumber}</title>
-      <style>
-        * {
-          margin: 0;
-          padding: 0;
-          box-sizing: border-box;
-        }
-        
-        body {
-          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-          line-height: 1.6;
-          color: #333;
-          background: white;
-        }
-        
-        .document-container {
-          max-width: 800px;
-          margin: 0 auto;
-          padding: 40px;
-        }
-        
-        .header {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          margin-bottom: 40px;
-          border-bottom: 3px solid #3b82f6;
-          padding-bottom: 20px;
-        }
-        
-        .company-info {
-          flex: 1;
-        }
-        
-        .company-logo {
-          max-width: 150px;
-          max-height: 80px;
-          margin-bottom: 15px;
-        }
-        
-        .company-info h2 {
-          color: #3b82f6;
-          font-size: 28px;
-          margin-bottom: 10px;
-        }
-        
-        .company-info p {
-          margin: 5px 0;
-          color: #666;
-        }
-        
-        .company-details {
-          margin-top: 10px;
-          font-size: 14px;
-        }
-        
-        .proforma-info {
-          text-align: right;
-          flex-shrink: 0;
-        }
-        
-        .proforma-info h3 {
-          color: #3b82f6;
-          font-size: 24px;
-          margin-bottom: 10px;
-        }
-        
-        .proforma-info p {
-          margin: 5px 0;
-        }
-        
-        .client-section {
-          margin: 40px 0;
-        }
-        
-        .client-section h4 {
-          color: #3b82f6;
-          margin-bottom: 15px;
-          font-size: 18px;
-        }
-        
-        .client-info {
-          background: #f8fafc;
-          padding: 20px;
-          border-radius: 8px;
-          border-left: 4px solid #3b82f6;
-        }
-        
-        .details-section {
-          margin: 40px 0;
-        }
-        
-        .details-table {
-          width: 100%;
-          border-collapse: collapse;
-          margin: 20px 0;
-          border-radius: 8px;
-          overflow: hidden;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-        }
-        
-        .details-table th,
-        .details-table td {
-          padding: 15px;
-          text-align: left;
-        }
-        
-        .details-table th {
-          background: #3b82f6;
-          color: white;
-          font-weight: 600;
-        }
-        
-        .details-table td {
-          background: white;
-          border-bottom: 1px solid #e2e8f0;
-        }
-        
-        .details-table tr:last-child td {
-          border-bottom: none;
-        }
-        
-        .service-row {
-          border-bottom: 1px solid #f1f5f9;
-        }
-        
-        .service-row:last-child {
-          border-bottom: 2px solid #3b82f6;
-        }
-        
-        .total-section {
-          margin: 40px 0;
-          text-align: right;
-        }
-        
-        .total-box {
-          display: inline-block;
-          background: #3b82f6;
-          color: white;
-          padding: 25px;
-          border-radius: 12px;
-          min-width: 280px;
-        }
-        
-        .total-box h4 {
-          font-size: 18px;
-          margin-bottom: 10px;
-          opacity: 0.9;
-        }
-        
-        .total-box .amount {
-          font-size: 32px;
-          font-weight: bold;
-        }
-        
-        .notes-section {
-          margin: 40px 0;
-          padding: 20px;
-          background: #f8fafc;
-          border-radius: 8px;
-          border-left: 4px solid #10b981;
-        }
-        
-        .notes-section h4 {
-          color: #10b981;
-          margin-bottom: 15px;
-        }
-        
-        .footer {
-          margin-top: 60px;
-          padding: 20px;
-          background: #f8fafc;
-          border-radius: 8px;
-          border-top: 3px solid #3b82f6;
-          text-align: center;
-          color: #666;
-          font-size: 14px;
-        }
-        
-        .footer .validity {
-          font-weight: 600;
-          color: #3b82f6;
-          margin-bottom: 10px;
-        }
-        
-        .footer .company-footer {
-          margin-top: 15px;
-          padding-top: 15px;
-          border-top: 1px solid #e2e8f0;
-          font-size: 12px;
-        }
-        
-        @media print {
-          .document-container {
-            padding: 0;
-          }
-        }
-      </style>
-    </head>
-    <body>
-      <div class="document-container">
-        <!-- En-tête -->
-        <div class="header">
-          <div class="company-info">
-            ${companyLogo ? `<img src="${companyLogo}" alt="Logo" class="company-logo">` : ''}
-            <h2>${companyName}</h2>
-            ${companyAddress ? `<p>📍 ${companyAddress}</p>` : ''}
-            ${companyPhone ? `<p>📞 ${companyPhone}</p>` : ''}
-            ${companyEmail ? `<p>📧 ${companyEmail}</p>` : ''}
-            
-            ${companySettings ? `
-              <div class="company-details">
-                ${companySettings.rccm ? `<p><strong>RCCM:</strong> ${companySettings.rccm}</p>` : ''}
-                ${companySettings.nif ? `<p><strong>NIF:</strong> ${companySettings.nif}</p>` : ''}
-                ${companySettings.website ? `<p><strong>Site web:</strong> ${companySettings.website}</p>` : ''}
-              </div>
-            ` : ''}
-          </div>
-          <div class="proforma-info">
-            <h3>PROFORMA</h3>
-            <p><strong>N°:</strong> ${proforma.invoiceNumber}</p>
-            <p><strong>Date:</strong> ${formatDate(proforma.createdAt)}</p>
-            ${proforma.dueDate ? `<p><strong>Échéance:</strong> ${formatDate(proforma.dueDate)}</p>` : ''}
-          </div>
-        </div>
-        
-        <!-- Informations client -->
-        <div class="client-section">
-          <h4>Facturé à :</h4>
-          <div class="client-info">
-            ${proforma.clientName ? `<p><strong>${proforma.clientName}</strong></p>` : ''}
-            ${proforma.project?.client?.name && !proforma.clientName ? `<p><strong>${proforma.project.client.name}</strong></p>` : ''}
-            ${proforma.clientAddress ? `<p>📍 ${proforma.clientAddress}</p>` : ''}
-            ${proforma.project?.client?.address && !proforma.clientAddress ? `<p>📍 ${proforma.project.client.address}</p>` : ''}
-            ${proforma.clientEmail ? `<p>📧 ${proforma.clientEmail}</p>` : ''}
-            ${proforma.project?.client?.email && !proforma.clientEmail ? `<p>📧 ${proforma.project.client.email}</p>` : ''}
-            ${proforma.clientPhone ? `<p>📞 ${proforma.clientPhone}</p>` : ''}
-            ${proforma.project?.client?.phone && !proforma.clientPhone ? `<p>📞 ${proforma.project.client.phone}</p>` : ''}
-          </div>
-        </div>
-        
-        <!-- Détails du devis -->
-        <div class="details-section">
-          <table class="details-table">
-            <thead>
-              <tr>
-                <th>Description</th>
-                <th style="text-align: center; width: 100px;">Qté</th>
-                <th style="text-align: right; width: 120px;">Prix unitaire</th>
-                <th style="text-align: right; width: 150px;">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${proforma.project?.services && proforma.project.services.length > 0 ? 
-                proforma.project.services.map((service: any) => `
-                  <tr class="service-row">
-                    <td>
-                      <strong>${service.name}</strong>
-                      ${service.description ? `<br><small style="color: #666;">${service.description}</small>` : ''}
-                      ${service.unit ? `<br><small style="color: #888;">Unité: ${service.unit}</small>` : ''}
-                    </td>
-                    <td style="text-align: center;">${service.quantity}</td>
-                    <td style="text-align: right;">${formatCurrency(service.amount)}</td>
-                    <td style="text-align: right; font-weight: 600;">${formatCurrency(service.amount * service.quantity)}</td>
-                  </tr>
-                `).join('') : `
-                  <tr>
-                    <td>
-                      ${proforma.project ? `<strong>Projet:</strong> ${proforma.project.name}` : 'Prestation'}
-                      ${proforma.project?.description ? `<br><small style="color: #666;">${proforma.project.description}</small>` : ''}
-                    </td>
-                    <td style="text-align: center;">1</td>
-                    <td style="text-align: right;">${formatCurrency(proforma.amount)}</td>
-                    <td style="text-align: right; font-weight: 600;">${formatCurrency(proforma.amount)}</td>
-                  </tr>
-                `
-              }
-            </tbody>
-          </table>
-        </div>
-        
-        <!-- Total -->
-        <div class="total-section">
-          <div class="total-box">
-            <h4>Total TTC</h4>
-            <div class="amount">${formatCurrency(proforma.amount)}</div>
-          </div>
-        </div>
-        
-        <!-- Notes -->
-        ${proforma.notes ? `
-          <div class="notes-section">
-            <h4>📝 Notes</h4>
-            <p>${proforma.notes}</p>
-          </div>
-        ` : ''}
-        
-        <!-- Pied de page -->
-        <div class="footer">
-          <div class="validity">${getValidityText()}</div>
-          <p>Merci de votre confiance ! 🙏</p>
-          
-          ${companySettings ? `
-            <div class="company-footer">
-              ${companySettings.bankName ? `<p><strong>Banque:</strong> ${companySettings.bankName}</p>` : ''}
-              ${companySettings.bankAccount ? `<p><strong>Compte:</strong> ${companySettings.bankAccount}</p>` : ''}
-              ${companySettings.legalForm ? `<p><strong>Forme juridique:</strong> ${companySettings.legalForm}</p>` : ''}
-            </div>
-          ` : ''}
-        </div>
-      </div>
-    </body>
-    </html>
-  `
+  // En-tête moderne avec gradient effet
+  doc.setFillColor(...colors.primary)
+  doc.rect(0, 0, pageWidth, 40, 'F')
+  
+  // Titre du document - PROFORMA
+  doc.setTextColor(...colors.white)
+  doc.setFontSize(24)
+  doc.setFont('helvetica', 'bold')
+  doc.text('DEVIS PROFORMA', margin, 25)
+  
+  // Numéro du document
+  doc.setFontSize(14)
+  doc.setFont('helvetica', 'normal')
+  doc.text(`N° ${proforma.invoiceNumber}`, pageWidth - margin - 50, 25)
+
+  yPos = 55
+
+  // Informations entreprise (gauche)
+  doc.setTextColor(...colors.text)
+  doc.setFontSize(16)
+  doc.setFont('helvetica', 'bold')
+  const companyName = companySettings?.name || user?.companyName || user?.name || 'Mon Entreprise'
+  doc.text(companyName, margin, yPos)
+  
+  yPos += 10
+  doc.setFontSize(10)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(...colors.muted)
+  
+  const companyInfo = []
+  const address = companySettings?.address || user?.address
+  const phone = companySettings?.phone || user?.phone
+  const email = companySettings?.email || user?.email
+  
+  if (address) companyInfo.push(address)
+  if (phone) companyInfo.push(`Tél: ${phone}`)
+  if (email) companyInfo.push(`Email: ${email}`)
+  
+  companyInfo.forEach(info => {
+    doc.text(info, margin, yPos)
+    yPos += 5
+  })
+
+  // Informations légales si disponibles
+  if (companySettings) {
+    yPos += 3
+    doc.setFontSize(8)
+    if (companySettings.rccm) {
+      doc.text(`RCCM: ${companySettings.rccm}`, margin, yPos)
+      yPos += 4
+    }
+    if (companySettings.nif) {
+      doc.text(`NIF: ${companySettings.nif}`, margin, yPos)
+      yPos += 4
+    }
+  }
+
+  // Informations client (droite)
+  const clientStartY = 55
+  const clientX = pageWidth - margin - 80
+  
+  doc.setFillColor(...colors.light)
+  doc.rect(clientX - 10, clientStartY - 5, 90, 45, 'F')
+  
+  doc.setTextColor(...colors.primary)
+  doc.setFontSize(12)
+  doc.setFont('helvetica', 'bold')
+  doc.text('CLIENT', clientX, clientStartY)
+  
+  let clientY = clientStartY + 10
+  doc.setTextColor(...colors.text)
+  doc.setFontSize(10)
+  doc.setFont('helvetica', 'bold')
+  
+  const clientName = proforma.clientName || proforma.project?.client?.name || 'Client'
+  const clientNameLines = doc.splitTextToSize(clientName, 75)
+  doc.text(clientNameLines, clientX, clientY)
+  clientY += clientNameLines.length * 5
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+  doc.setTextColor(...colors.muted)
+  
+  const clientDetails = []
+  const clientEmail = proforma.clientEmail || proforma.project?.client?.email
+  const clientAddress = proforma.clientAddress || proforma.project?.client?.address
+  const clientPhone = proforma.clientPhone || proforma.project?.client?.phone
+  
+  if (clientEmail) clientDetails.push(clientEmail)
+  if (clientAddress) clientDetails.push(clientAddress)
+  if (clientPhone) clientDetails.push(`Tél: ${clientPhone}`)
+  
+  clientDetails.forEach(detail => {
+    const lines = doc.splitTextToSize(detail, 75)
+    doc.text(lines, clientX, clientY)
+    clientY += lines.length * 4
+  })
+
+  yPos = Math.max(yPos, clientY) + 20
+
+  // Informations du devis - table moderne
+  const proformaInfoData = [
+    ['Date de création', formatDate(proforma.createdAt)],
+    ['Date d\'échéance', proforma.dueDate ? formatDate(proforma.dueDate) : 'Non définie'],
+    ['Validité', getValidityText()],
+    ...(proforma.project ? [['Projet', proforma.project.name]] : [])
+  ]
+
+  autoTable(doc, {
+    startY: yPos,
+    body: proformaInfoData,
+    bodyStyles: { 
+      fontSize: 9,
+      cellPadding: { top: 4, bottom: 4, left: 8, right: 8 }
+    },
+    columnStyles: {
+      0: { fontStyle: 'bold', cellWidth: 50, fillColor: colors.light },
+      1: { cellWidth: 60 }
+    },
+    margin: { left: margin, right: pageWidth - margin - 110 },
+    tableWidth: 110
+  })
+
+  yPos = (doc as any).lastAutoTable.finalY + 20
+
+  // Services/Prestations - Design moderne
+  doc.setTextColor(...colors.text)
+  doc.setFontSize(14)
+  doc.setFont('helvetica', 'bold')
+  doc.text('DÉTAIL DES PRESTATIONS', margin, yPos)
+  yPos += 10
+
+  if (proforma.project?.services && proforma.project.services.length > 0) {
+    const servicesData = proforma.project.services.map((service: any) => [
+      service.name + (service.description ? `\n${service.description}` : ''),
+      service.quantity?.toString() || '1',
+      service.unit || 'forfait',
+      formatCurrency(service.amount),
+      formatCurrency((service.amount || 0) * (service.quantity || 1))
+    ])
+
+    autoTable(doc, {
+      startY: yPos,
+      head: [['Description', 'Qté', 'Unité', 'Prix unitaire', 'Total']],
+      body: servicesData,
+      headStyles: { 
+        fillColor: colors.secondary,
+        textColor: colors.white,
+        fontSize: 10,
+        fontStyle: 'bold',
+        cellPadding: { top: 8, bottom: 8, left: 8, right: 8 }
+      },
+      bodyStyles: { 
+        fontSize: 9,
+        cellPadding: { top: 6, bottom: 6, left: 8, right: 8 }
+      },
+      columnStyles: {
+        0: { cellWidth: 85 },
+        1: { cellWidth: 20, halign: 'center' },
+        2: { cellWidth: 25, halign: 'center' },
+        3: { cellWidth: 35, halign: 'right' },
+        4: { cellWidth: 35, halign: 'right', fontStyle: 'bold', fillColor: colors.light }
+      },
+      margin: { left: margin, right: margin }
+    })
+  } else {
+    // Projet simple
+    const projectData = [[
+      proforma.project ? `Projet: ${proforma.project.name}` : 'Prestation',
+      '1',
+      'forfait',
+      formatCurrency(proforma.amount),
+      formatCurrency(proforma.amount)
+    ]]
+
+    autoTable(doc, {
+      startY: yPos,
+      head: [['Description', 'Qté', 'Unité', 'Prix unitaire', 'Total']],
+      body: projectData,
+      headStyles: { 
+        fillColor: colors.secondary,
+        textColor: colors.white,
+        fontSize: 10,
+        fontStyle: 'bold',
+        cellPadding: { top: 8, bottom: 8, left: 8, right: 8 }
+      },
+      bodyStyles: { 
+        fontSize: 10,
+        cellPadding: { top: 8, bottom: 8, left: 8, right: 8 }
+      },
+      columnStyles: {
+        0: { cellWidth: 85 },
+        1: { cellWidth: 20, halign: 'center' },
+        2: { cellWidth: 25, halign: 'center' },
+        3: { cellWidth: 35, halign: 'right' },
+        4: { cellWidth: 35, halign: 'right', fontStyle: 'bold', fillColor: colors.light }
+      },
+      margin: { left: margin, right: margin }
+    })
+  }
+
+  yPos = (doc as any).lastAutoTable.finalY + 15
+
+  // Total moderne avec design élégant
+  const totalBoxWidth = 80
+  const totalBoxX = pageWidth - margin - totalBoxWidth
+  
+  // Fond du total
+  doc.setFillColor(...colors.primary)
+  doc.roundedRect(totalBoxX, yPos, totalBoxWidth, 25, 3, 3, 'F')
+  
+  // Texte total
+  doc.setTextColor(...colors.white)
+  doc.setFontSize(12)
+  doc.setFont('helvetica', 'bold')
+  doc.text('TOTAL TTC', totalBoxX + 5, yPos + 10)
+  
+  doc.setFontSize(16)
+  doc.text(formatCurrency(proforma.amount), totalBoxX + 5, yPos + 20)
+
+  yPos += 35
+
+  // Notes si présentes
+  if (proforma.notes) {
+    doc.setTextColor(...colors.text)
+    doc.setFontSize(12)
+    doc.setFont('helvetica', 'bold')
+    doc.text('NOTES', margin, yPos)
+    yPos += 8
+
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(10)
+    doc.setTextColor(...colors.muted)
+    const notesLines = doc.splitTextToSize(proforma.notes, pageWidth - 2 * margin)
+    doc.text(notesLines, margin, yPos)
+    yPos += notesLines.length * 5 + 10
+  }
+
+  // Encadré de validité - Badge moderne
+  yPos += 10
+  doc.setFillColor(240, 253, 244) // green-50
+  doc.rect(margin, yPos - 5, pageWidth - 2 * margin, 25, 'F')
+  
+  doc.setTextColor(...colors.accent)
+  doc.setFontSize(12)
+  doc.setFont('helvetica', 'bold')
+  doc.text('⏰ VALIDITÉ DU DEVIS', margin + 5, yPos + 5)
+  
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(10)
+  doc.setTextColor(...colors.muted)
+  doc.text(getValidityText(), margin + 5, yPos + 15)
+  
+  yPos += 35
+
+  // Conditions générales
+  doc.setTextColor(...colors.text)
+  doc.setFontSize(10)
+  doc.setFont('helvetica', 'bold')
+  doc.text('CONDITIONS :', margin, yPos)
+  yPos += 6
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+  doc.setTextColor(...colors.muted)
+  const conditions = [
+    '• Ce devis devient un contrat dès acceptation et signature.',
+    '• Les travaux débuteront après réception de l\'accord écrit.',
+    '• Toute modification fera l\'objet d\'un avenant.',
+    '• Paiement selon les conditions convenues.'
+  ]
+  
+  conditions.forEach(condition => {
+    doc.text(condition, margin, yPos)
+    yPos += 5
+  })
+
+  // Pied de page moderne
+  const pageHeight = doc.internal.pageSize.height
+  doc.setDrawColor(...colors.light)
+  doc.line(margin, pageHeight - 25, pageWidth - margin, pageHeight - 25)
+  
+  doc.setFontSize(8)
+  doc.setTextColor(...colors.muted)
+  doc.setFont('helvetica', 'normal')
+  
+  const footerText = `Devis généré le ${formatDate(new Date())} par REV - Gestion Freelance`
+  doc.text(footerText, margin, pageHeight - 15)
+  
+  // Signature
+  doc.setTextColor(...colors.text)
+  doc.setFontSize(10)
+  doc.setFont('helvetica', 'bold')
+  doc.text('Bon pour accord :', pageWidth - margin - 60, pageHeight - 20)
+  doc.text('Signature client :', pageWidth - margin - 60, pageHeight - 12)
+
+  return doc.output('arraybuffer')
 } 

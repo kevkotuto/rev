@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Récupérer la configuration Wave de l'utilisateur
+    // Récupérer la clé API Wave de l'utilisateur
     const user = await prisma.user.findUnique({
       where: { id: session.user.id },
       select: {
@@ -29,8 +29,8 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Appel à l'API Wave pour récupérer le solde
-    const waveResponse = await fetch('https://api.wave.com/v1/balance', {
+    // Essayer d'abord l'API /v1/me pour plus d'informations
+    let waveResponse = await fetch('https://api.wave.com/v1/me', {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${user.waveApiKey}`,
@@ -38,21 +38,68 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    if (!waveResponse.ok) {
-      const error = await waveResponse.text()
-      console.error('Erreur API Wave:', error)
-      return NextResponse.json(
-        { message: "Erreur lors de la récupération du solde Wave" },
-        { status: 500 }
-      )
+    let waveData
+    let account_name = null
+    let account_mobile = null
+
+    if (waveResponse.ok) {
+      // API /v1/me réussie - récupérer les infos du compte
+      waveData = await waveResponse.json()
+      account_name = waveData.name || waveData.account_name || null
+      account_mobile = waveData.mobile || waveData.phone || null
+      
+      // Si pas de balance dans /v1/me, essayer /v1/balance
+      if (!waveData.balance && !waveData.amount) {
+        const balanceResponse = await fetch('https://api.wave.com/v1/balance', {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${user.waveApiKey}`,
+            'Content-Type': 'application/json'
+          }
+        })
+        
+        if (balanceResponse.ok) {
+          const balanceData = await balanceResponse.json()
+          waveData.amount = balanceData.amount
+          waveData.currency = balanceData.currency
+        }
+      }
+    } else {
+      // Fallback vers /v1/balance
+      waveResponse = await fetch('https://api.wave.com/v1/balance', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${user.waveApiKey}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (!waveResponse.ok) {
+        const errorData = await waveResponse.json().catch(() => ({}))
+        console.error('Erreur Wave API Balance:', {
+          status: waveResponse.status,
+          statusText: waveResponse.statusText,
+          error: errorData
+        })
+        
+        return NextResponse.json(
+          { 
+            message: "Erreur lors de la récupération du solde Wave", 
+            error: errorData,
+            status: waveResponse.status 
+          },
+          { status: waveResponse.status }
+        )
+      }
+
+      waveData = await waveResponse.json()
     }
 
-    const balanceData = await waveResponse.json()
-
     return NextResponse.json({
-      balance: balanceData.available_balance,
-      currency: balanceData.currency,
-      lastUpdated: new Date().toISOString()
+      balance: waveData.balance || waveData.amount,
+      currency: waveData.currency,
+      account_name,
+      account_mobile
     })
 
   } catch (error) {

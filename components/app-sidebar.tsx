@@ -17,6 +17,8 @@ import {
   Users,
   UserCheck,
   Wallet,
+  DollarSign,
+  Bell,
 } from "lucide-react"
 
 import {
@@ -42,6 +44,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { useSession, signOut } from "next-auth/react"
+import NotificationsPopover from "@/components/notifications-popover"
 
 // Menu items
 const data = {
@@ -113,6 +116,14 @@ const data = {
           url: "/finance",
         },
         {
+          title: "Transactions",
+          url: "/transactions",
+        },
+        {
+          title: "Transactions Wave",
+          url: "/wave-transactions",
+        },
+        {
           title: "Dépenses",
           url: "/expenses",
         },
@@ -141,6 +152,11 @@ const data = {
       icon: Mail,
     },
     {
+      title: "Notifications",
+      url: "/notifications",
+      icon: Bell,
+    },
+    {
       title: "Paramètres",
       url: "/settings",
       icon: Settings,
@@ -164,6 +180,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-semibold">REV</span>
                   <span className="truncate text-xs">Gestion Freelance</span>
+                </div>
+                <div className="ml-auto">
+                  <NotificationsPopover />
                 </div>
               </a>
             </SidebarMenuButton>

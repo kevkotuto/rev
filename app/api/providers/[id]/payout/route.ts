@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { z } from "zod"
+
+const payoutSchema = z.object({
+  amount: z.number().positive("Le montant doit être positif"),
+  projectProviderId: z.string().optional(),
+  notes: z.string().optional()
+})
 
 export async function POST(
   request: NextRequest,
@@ -17,33 +24,15 @@ export async function POST(
       )
     }
 
-    const { id } = await params
+    const { id: providerId } = await params
     const body = await request.json()
-    const { amount, projectProviderId, notes } = body
+    const { amount, projectProviderId, notes } = payoutSchema.parse(body)
 
     // Vérifier que le prestataire existe et appartient à l'utilisateur
     const provider = await prisma.provider.findFirst({
       where: {
-        id,
+        id: providerId,
         userId: session.user.id
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        address: true,
-        company: true,
-        role: true,
-        photo: true,
-        notes: true,
-        bankName: true,
-        bankAccount: true,
-        bankIban: true,
-        waveRecipientId: true,
-        userId: true,
-        createdAt: true,
-        updatedAt: true
       }
     })
 
@@ -54,126 +43,130 @@ export async function POST(
       )
     }
 
-    // Vérifier l'ID du prestataire Wave (recipient_id)
-    if (!provider.waveRecipientId) {
+    // Vérifier que le prestataire a un numéro de téléphone
+    if (!provider.phone) {
       return NextResponse.json(
-        { message: "Ce prestataire n'a pas d'ID Wave configuré. Veuillez d'abord l'ajouter dans les paramètres du prestataire." },
+        { message: "Le prestataire doit avoir un numéro de téléphone pour recevoir un paiement Wave" },
         { status: 400 }
       )
     }
 
-    // Récupérer les informations utilisateur pour Wave
+    // Récupérer la clé API Wave de l'utilisateur
     const user = await prisma.user.findUnique({
       where: { id: session.user.id },
       select: {
-        waveApiKey: true,
-        currency: true
+        waveApiKey: true
       }
     })
 
     if (!user?.waveApiKey) {
       return NextResponse.json(
-        { message: "Configuration Wave manquante. Veuillez configurer vos clés API Wave dans les paramètres." },
+        { message: "Clé API Wave non configurée" },
         { status: 400 }
       )
     }
 
-    // Préparer la requête B2B Payout selon la documentation Wave
-    const payoutRequest = {
-      currency: user.currency === 'FCFA' ? 'XOF' : (user.currency || 'XOF'),
-      receive_amount: amount.toString(), // Le prestataire reçoit ce montant
-      recipient_id: provider.waveRecipientId,
-      client_reference: `payout-${provider.id}-${Date.now()}`,
-      fee_payment_method: "SENDER_PAYS" // L'utilisateur paie les frais
+    // Préparer les données pour l'API Wave
+    const wavePayload = {
+      currency: "XOF",
+      receive_amount: amount.toString(),
+      mobile: provider.phone,
+      name: provider.name,
+      client_reference: `payout-${providerId}-${Date.now()}`,
+      payment_reason: projectProviderId ? "Paiement projet" : "Paiement prestataire"
     }
 
-    console.log('Requête Wave B2B Payout:', payoutRequest)
-
-    // Effectuer le paiement via Wave B2B Payout
-    let waveResponse
+    // Appeler l'API Wave
+    let waveResponse = null
     try {
-      const waveApiResponse = await fetch('https://api.wave.com/v1/b2b/payout', {
+      const response = await fetch('https://api.wave.com/v1/payout', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${user.waveApiKey}`,
           'Content-Type': 'application/json',
-          'idempotency-key': `payout-${provider.id}-${Date.now()}`
+          'idempotency-key': `payout-${providerId}-${Date.now()}`
         },
-        body: JSON.stringify(payoutRequest)
+        body: JSON.stringify(wavePayload)
       })
 
-      console.log('Statut réponse Wave B2B:', waveApiResponse.status)
+      waveResponse = await response.json()
 
-      if (!waveApiResponse.ok) {
-        const errorText = await waveApiResponse.text()
-        console.error('Erreur Wave B2B API:', errorText)
-        
-        let errorMessage = 'Erreur inconnue'
-        try {
-          const errorData = JSON.parse(errorText)
-          errorMessage = errorData.message || errorData.error || 'Erreur inconnue'
-        } catch {
-          errorMessage = errorText || 'Erreur inconnue'
-        }
-        
-        throw new Error(`Wave B2B API Error: ${errorMessage}`)
+      if (!response.ok) {
+        console.error('Erreur API Wave:', waveResponse)
+        return NextResponse.json(
+          { 
+            message: "Erreur lors du paiement Wave", 
+            waveError: waveResponse.message || "Erreur inconnue"
+          },
+          { status: 400 }
+        )
       }
-
-      waveResponse = await waveApiResponse.json()
-      console.log('Réponse Wave B2B Payout:', waveResponse)
-      
     } catch (error) {
-      console.error('Erreur Wave B2B API:', error)
+      console.error('Erreur lors de l\'appel API Wave:', error)
       return NextResponse.json(
-        { message: `Erreur lors du paiement Wave: ${error instanceof Error ? error.message : 'Erreur inconnue'}` },
+        { message: "Erreur de connexion à l'API Wave" },
+        { status: 500 }
+      )
+    }
+
+    // Créer une dépense pour tracer le paiement
+    const expenseData = {
+      description: `Paiement Wave - ${provider.name}`,
+      amount: amount,
+      category: 'PROVIDER_PAYMENT' as const,
+      type: projectProviderId ? 'PROJECT' as const : 'GENERAL' as const,
+      date: new Date(),
+      notes: `${notes || ''}\nWave ID: ${waveResponse.id}\nTéléphone: ${provider.phone}`.trim(),
+      userId: session.user.id,
+      projectId: null as string | null
+    }
+
+    // Si c'est lié à un projet, essayer de récupérer le projectId
+    if (projectProviderId) {
+      const projectProvider = await prisma.projectProvider.findUnique({
+        where: { id: projectProviderId },
+        include: { project: true }
+      })
+      
+      if (projectProvider) {
+        expenseData.projectId = projectProvider.project.id
+        
+        // Marquer le prestataire comme payé dans le projet
+        await prisma.projectProvider.update({
+          where: { id: projectProviderId },
+          data: {
+            isPaid: true,
+            paidDate: new Date(),
+            paymentMethod: 'WAVE'
+          }
+        })
+      }
+    }
+
+    const expense = await prisma.expense.create({
+      data: expenseData
+    })
+
+    return NextResponse.json({
+      message: "Paiement Wave effectué avec succès",
+      waveResponse,
+      expense: {
+        id: expense.id,
+        amount: expense.amount
+      }
+    })
+
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { message: "Données invalides", errors: error.errors },
         { status: 400 }
       )
     }
 
-    // Créer un enregistrement de paiement avec le bon modèle
-    const payment = await prisma.$transaction(async (tx) => {
-      const payment = await tx.providerPayment.create({
-        data: {
-          providerId: provider.id,
-          projectProviderId: projectProviderId || null,
-          amount: parseFloat(amount),
-          paymentMethod: 'WAVE',
-          status: waveResponse.status === 'succeeded' ? 'COMPLETED' : 'PENDING',
-          wavePayoutId: waveResponse.id,
-          fees: parseFloat(waveResponse.fee || '0'),
-          notes: notes || `Paiement Wave B2B - ${waveResponse.id}`,
-          userId: session.user.id,
-          paidAt: waveResponse.status === 'succeeded' ? new Date() : null
-        }
-      })
-
-      // Si lié à un projet, mettre à jour le statut
-      if (projectProviderId) {
-        await tx.projectProvider.update({
-          where: { id: projectProviderId },
-          data: {
-            isPaid: waveResponse.status === 'succeeded',
-            paymentMethod: 'WAVE',
-            paidDate: waveResponse.status === 'succeeded' ? new Date() : null
-          }
-        })
-      }
-
-      return payment
-    })
-
-    return NextResponse.json({
-      payment,
-      waveResponse,
-      message: waveResponse.status === 'succeeded' 
-        ? "Paiement Wave effectué avec succès" 
-        : "Paiement Wave initié, en attente de confirmation"
-    })
-
-  } catch (error) {
     console.error("Erreur lors du paiement Wave:", error)
     return NextResponse.json(
-      { message: "Erreur lors du paiement Wave" },
+      { message: "Erreur interne du serveur" },
       { status: 500 }
     )
   }

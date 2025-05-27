@@ -3,8 +3,9 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { jsPDF } from "jspdf"
-import "jspdf-autotable"
+import autoTable from "jspdf-autotable"
 
+// Extend jsPDF with autoTable
 declare module "jspdf" {
   interface jsPDF {
     autoTable: (options: any) => jsPDF
@@ -107,11 +108,11 @@ export async function GET(request: NextRequest) {
     const doc = new jsPDF()
     
     // Configuration des couleurs
-    const primaryColor = [59, 130, 246] // blue-500
-    const secondaryColor = [107, 114, 128] // gray-500
-    const successColor = [34, 197, 94] // green-500
-    const warningColor = [251, 146, 60] // orange-500
-    const dangerColor = [239, 68, 68] // red-500
+    const primaryColor: [number, number, number] = [59, 130, 246] // blue-500
+    const secondaryColor: [number, number, number] = [107, 114, 128] // gray-500
+    const successColor: [number, number, number] = [34, 197, 94] // green-500
+    const warningColor: [number, number, number] = [251, 146, 60] // orange-500
+    const dangerColor: [number, number, number] = [239, 68, 68] // red-500
 
     // En-tête
     doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2])
@@ -174,7 +175,7 @@ export async function GET(request: NextRequest) {
       ]
     ]
 
-    doc.autoTable({
+    autoTable(doc, {
       startY: yPos,
       head: [mainMetrics[0]],
       body: mainMetrics.slice(1),
@@ -199,7 +200,7 @@ export async function GET(request: NextRequest) {
       ['Factures', invoices.length.toString(), paidInvoices.toString(), (pendingInvoices + overdueInvoices).toString()]
     ]
 
-    doc.autoTable({
+    autoTable(doc, {
       startY: yPos,
       head: [dataBreakdown[0]],
       body: dataBreakdown.slice(1),
@@ -223,7 +224,7 @@ export async function GET(request: NextRequest) {
       ['Bénéfice net', netProfit.toLocaleString(), totalRevenue > 0 ? `${profitMargin.toFixed(1)}%` : '0%']
     ]
 
-    doc.autoTable({
+    autoTable(doc, {
       startY: yPos,
       head: [financialAnalysis[0]],
       body: financialAnalysis.slice(1),
@@ -262,7 +263,7 @@ export async function GET(request: NextRequest) {
         ])
       ]
 
-      doc.autoTable({
+      autoTable(doc, {
         startY: yPos,
         head: [clientsData[0]],
         body: clientsData.slice(1),
@@ -297,7 +298,7 @@ export async function GET(request: NextRequest) {
       ['En retard', overdueInvoices.toString(), `${((overdueInvoices / invoices.length) * 100).toFixed(1)}%`]
     ]
 
-    doc.autoTable({
+    autoTable(doc, {
       startY: yPos,
       head: [invoiceStatus[0]],
       body: invoiceStatus.slice(1),

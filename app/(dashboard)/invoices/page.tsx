@@ -101,10 +101,31 @@ interface Client {
   company?: string
 }
 
+interface Provider {
+  id: string
+  name: string
+  email?: string
+  phone?: string
+  role?: string
+}
+
+interface PaymentLinkFormData {
+  amount: string // Wave utilise des chaînes pour les montants
+  currency: "XOF"
+  recipient_type: "client" | "provider" | "custom"
+  clientId?: string
+  providerId?: string
+  recipient_name?: string
+  recipient_phone?: string
+  description: string
+  client_reference?: string
+}
+
 export default function InvoicesPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [clients, setClients] = useState<Client[]>([])
+  const [providers, setProviders] = useState<Provider[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
@@ -115,10 +136,19 @@ export default function InvoicesPage() {
   const [showEmailDialog, setShowEmailDialog] = useState(false)
   const [emailInvoiceId, setEmailInvoiceId] = useState<string>("")
   const [emailInvoiceType, setEmailInvoiceType] = useState<"INVOICE" | "PROFORMA">("INVOICE")
+  const [showPaymentLinkDialog, setShowPaymentLinkDialog] = useState(false)
   const [formData, setFormData] = useState<InvoiceFormData>({
     type: "INVOICE",
     amount: 0,
     generatePaymentLink: false
+  })
+
+  const [paymentLinkForm, setPaymentLinkForm] = useState<PaymentLinkFormData>({
+    amount: "",
+    currency: "XOF",
+    recipient_type: "client",
+    description: "",
+    client_reference: ""
   })
 
   // Statistiques
@@ -136,6 +166,7 @@ export default function InvoicesPage() {
     fetchInvoices()
     fetchProjects()
     fetchClients()
+    fetchProviders()
   }, [])
 
   useEffect(() => {
@@ -180,6 +211,18 @@ export default function InvoicesPage() {
       }
     } catch (error) {
       console.error('Erreur lors du chargement des clients:', error)
+    }
+  }
+
+  const fetchProviders = async () => {
+    try {
+      const response = await fetch('/api/providers')
+      if (response.ok) {
+        const data = await response.json()
+        setProviders(data)
+      }
+    } catch (error) {
+      console.error('Erreur lors du chargement des prestataires:', error)
     }
   }
 
@@ -367,6 +410,79 @@ export default function InvoicesPage() {
     }
   }
 
+  const handleCreatePaymentLink = async () => {
+    try {
+      // Validation des montants selon la documentation Wave
+      const amount = parseFloat(paymentLinkForm.amount)
+      if (isNaN(amount) || amount <= 0) {
+        toast.error('Le montant doit être un nombre positif')
+        return
+      }
+
+      // Formatage du montant selon Wave (chaîne sans décimales pour XOF)
+      const formattedAmount = Math.round(amount).toString()
+
+      let requestData: any = {
+        amount: formattedAmount,
+        currency: paymentLinkForm.currency,
+        description: paymentLinkForm.description,
+        client_reference: paymentLinkForm.client_reference || undefined
+      }
+
+      // Ajouter les informations du destinataire selon le type
+      if (paymentLinkForm.recipient_type === 'client' && paymentLinkForm.clientId) {
+        const client = clients.find(c => c.id === paymentLinkForm.clientId)
+        if (client) {
+          requestData.recipient_name = client.name
+          requestData.recipient_phone = client.phone
+        }
+      } else if (paymentLinkForm.recipient_type === 'provider' && paymentLinkForm.providerId) {
+        const provider = providers.find(p => p.id === paymentLinkForm.providerId)
+        if (provider) {
+          requestData.recipient_name = provider.name
+          requestData.recipient_phone = provider.phone
+        }
+      } else if (paymentLinkForm.recipient_type === 'custom') {
+        requestData.recipient_name = paymentLinkForm.recipient_name
+        requestData.recipient_phone = paymentLinkForm.recipient_phone
+      }
+
+      const response = await fetch('/api/wave/create-payment-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestData)
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        toast.success('Lien de paiement créé avec succès')
+        setShowPaymentLinkDialog(false)
+        resetPaymentLinkForm()
+        
+        // Ouvrir le lien de paiement généré
+        if (result.wave_launch_url) {
+          window.open(result.wave_launch_url, '_blank')
+        }
+      } else {
+        const error = await response.json()
+        toast.error(error.message || 'Erreur lors de la création du lien de paiement')
+      }
+    } catch (error) {
+      console.error('Erreur:', error)
+      toast.error('Erreur lors de la création du lien de paiement')
+    }
+  }
+
+  const resetPaymentLinkForm = () => {
+    setPaymentLinkForm({
+      amount: "",
+      currency: "XOF",
+      recipient_type: "client",
+      description: "",
+      client_reference: ""
+    })
+  }
+
   const handleSendEmail = (invoice: Invoice) => {
     setEmailInvoiceId(invoice.id)
     setEmailInvoiceType(invoice.type)
@@ -486,17 +602,29 @@ export default function InvoicesPage() {
             Gérez vos factures et proformas, envoyez-les par email avec PDF
           </p>
         </div>
-        <Button onClick={() => {
-          setFormData({
-            type: "INVOICE",
-            amount: 0,
-            generatePaymentLink: false
-          })
-          setShowCreateDialog(true)
-        }}>
-          <Plus className="mr-2 h-4 w-4" />
-          Nouvelle facture
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline"
+            onClick={() => {
+              resetPaymentLinkForm()
+              setShowPaymentLinkDialog(true)
+            }}
+          >
+            <CreditCard className="mr-2 h-4 w-4" />
+            Lien de paiement Wave
+          </Button>
+          <Button onClick={() => {
+            setFormData({
+              type: "INVOICE",
+              amount: 0,
+              generatePaymentLink: false
+            })
+            setShowCreateDialog(true)
+          }}>
+            <Plus className="mr-2 h-4 w-4" />
+            Nouvelle facture
+          </Button>
+        </div>
       </div>
 
       {/* Statistiques */}
@@ -1133,6 +1261,171 @@ export default function InvoicesPage() {
           toast.success('Email envoyé avec succès !')
         }}
       />
+
+      {/* Dialog de création de lien de paiement Wave */}
+      <Dialog open={showPaymentLinkDialog} onOpenChange={setShowPaymentLinkDialog}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Créer un lien de paiement Wave</DialogTitle>
+            <DialogDescription>
+              Générez un lien de paiement Wave pour un client, prestataire ou numéro personnalisé
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="payment-amount">Montant (XOF)</Label>
+                <Input
+                  id="payment-amount"
+                  type="number"
+                  value={paymentLinkForm.amount}
+                  onChange={(e) => setPaymentLinkForm({...paymentLinkForm, amount: e.target.value})}
+                  placeholder="Ex: 50000"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Les montants en XOF ne peuvent pas avoir de décimales
+                </p>
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="recipient-type">Type de destinataire</Label>
+                <Select 
+                  value={paymentLinkForm.recipient_type} 
+                  onValueChange={(value: "client" | "provider" | "custom") => 
+                    setPaymentLinkForm({
+                      ...paymentLinkForm, 
+                      recipient_type: value,
+                      clientId: "",
+                      providerId: "",
+                      recipient_name: "",
+                      recipient_phone: ""
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="client">Client existant</SelectItem>
+                    <SelectItem value="provider">Prestataire existant</SelectItem>
+                    <SelectItem value="custom">Numéro personnalisé</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {paymentLinkForm.recipient_type === 'client' && (
+              <div className="grid gap-2">
+                <Label htmlFor="client-select">Client</Label>
+                <Select 
+                  value={paymentLinkForm.clientId || ""} 
+                  onValueChange={(value) => setPaymentLinkForm({...paymentLinkForm, clientId: value})}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Sélectionner un client..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {clients.filter(client => client.id && client.id.trim() !== '').map((client) => (
+                      <SelectItem key={client.id} value={client.id}>
+                        {client.name}
+                        {client.company && ` - ${client.company}`}
+                        {client.phone && ` (${client.phone})`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {paymentLinkForm.recipient_type === 'provider' && (
+              <div className="grid gap-2">
+                <Label htmlFor="provider-select">Prestataire</Label>
+                <Select 
+                  value={paymentLinkForm.providerId || ""} 
+                  onValueChange={(value) => setPaymentLinkForm({...paymentLinkForm, providerId: value})}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Sélectionner un prestataire..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {providers.filter(provider => provider.id && provider.id.trim() !== '').map((provider) => (
+                      <SelectItem key={provider.id} value={provider.id}>
+                        {provider.name}
+                        {provider.role && ` - ${provider.role}`}
+                        {provider.phone && ` (${provider.phone})`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {paymentLinkForm.recipient_type === 'custom' && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="recipient-name">Nom du destinataire</Label>
+                  <Input
+                    id="recipient-name"
+                    value={paymentLinkForm.recipient_name || ""}
+                    onChange={(e) => setPaymentLinkForm({...paymentLinkForm, recipient_name: e.target.value})}
+                    placeholder="Nom complet"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="recipient-phone">Numéro de téléphone</Label>
+                  <Input
+                    id="recipient-phone"
+                    value={paymentLinkForm.recipient_phone || ""}
+                    onChange={(e) => setPaymentLinkForm({...paymentLinkForm, recipient_phone: e.target.value})}
+                    placeholder="+225XXXXXXXX"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Format E.164 avec indicatif pays (+225 pour CI)
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="grid gap-2">
+              <Label htmlFor="payment-description">Description du paiement</Label>
+              <Textarea
+                id="payment-description"
+                value={paymentLinkForm.description}
+                onChange={(e) => setPaymentLinkForm({...paymentLinkForm, description: e.target.value})}
+                placeholder="Ex: Paiement pour services de développement web"
+                rows={3}
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="client-reference">Référence client (optionnel)</Label>
+              <Input
+                id="client-reference"
+                value={paymentLinkForm.client_reference || ""}
+                onChange={(e) => setPaymentLinkForm({...paymentLinkForm, client_reference: e.target.value})}
+                placeholder="Ex: PROJ-2024-001"
+              />
+              <p className="text-xs text-muted-foreground">
+                Référence unique pour corréler ce paiement dans votre système (max 255 caractères)
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPaymentLinkDialog(false)}>
+              Annuler
+            </Button>
+            <Button 
+              onClick={handleCreatePaymentLink}
+              disabled={!paymentLinkForm.amount || !paymentLinkForm.description}
+            >
+              <CreditCard className="w-4 h-4 mr-2" />
+              Créer le lien de paiement
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

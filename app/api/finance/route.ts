@@ -44,12 +44,12 @@ export async function GET(request: NextRequest) {
         endDate = new Date(now.getFullYear(), 11, 31)
     }
 
-    // Récupérer les factures payées (revenus)
+    // Récupérer les factures payées (revenus) - utiliser la date de paiement
     const paidInvoices = await prisma.invoice.findMany({
       where: {
         userId: session.user.id,
         status: 'PAID',
-        createdAt: {
+        paidDate: {
           gte: startDate,
           lte: endDate
         }
@@ -65,6 +65,18 @@ export async function GET(request: NextRequest) {
     const allInvoices = await prisma.invoice.findMany({
       where: {
         userId: session.user.id,
+        createdAt: {
+          gte: startDate,
+          lte: endDate
+        }
+      }
+    })
+
+    // Récupérer les factures en attente (revenus potentiels)
+    const pendingInvoices = await prisma.invoice.findMany({
+      where: {
+        userId: session.user.id,
+        status: { in: ['PENDING', 'OVERDUE'] },
         createdAt: {
           gte: startDate,
           lte: endDate
@@ -92,6 +104,7 @@ export async function GET(request: NextRequest) {
     const totalRevenue = paidInvoices.reduce((sum, invoice) => sum + invoice.amount, 0)
     const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0)
     const netProfit = totalRevenue - totalExpenses
+    const pendingRevenue = pendingInvoices.reduce((sum, invoice) => sum + invoice.amount, 0)
 
     // Statistiques des factures
     const paidInvoicesCount = allInvoices.filter(i => i.status === 'PAID').length
@@ -108,7 +121,7 @@ export async function GET(request: NextRequest) {
         where: {
           userId: session.user.id,
           status: 'PAID',
-          createdAt: {
+          paidDate: {
             gte: monthStart,
             lte: monthEnd
           }
@@ -178,13 +191,18 @@ export async function GET(request: NextRequest) {
     })
 
     recentInvoices.forEach(invoice => {
+      // Utiliser la date de paiement si disponible, sinon la date de création
+      const displayDate = invoice.paidDate ? invoice.paidDate : invoice.createdAt
+      const dateLabel = invoice.paidDate ? 'Payée le' : 'Créée le'
+      
       recentTransactions.push({
         id: `invoice-${invoice.id}`,
         type: 'revenue' as const,
         description: `Facture ${invoice.invoiceNumber}${invoice.project ? ` - ${invoice.project.name}` : ''}`,
         amount: invoice.amount,
-        date: invoice.createdAt.toISOString(),
-        status: invoice.status
+        date: displayDate.toISOString(),
+        status: invoice.status,
+        dateLabel
       })
     })
 
@@ -221,6 +239,7 @@ export async function GET(request: NextRequest) {
       totalRevenue,
       totalExpenses,
       netProfit,
+      pendingRevenue,
       pendingInvoices: pendingInvoicesCount,
       paidInvoices: paidInvoicesCount,
       overdueInvoices: overdueInvoicesCount,

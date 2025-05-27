@@ -21,7 +21,8 @@ import {
   CreditCard,
   Banknote,
   Upload,
-  X
+  X,
+  Wallet
 } from "lucide-react"
 import {
   Dialog,
@@ -37,6 +38,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { motion } from "motion/react"
 import { toast } from "sonner"
+import ProviderPaymentDialog from "@/components/provider-payment-dialog"
 
 interface Provider {
   id: string
@@ -67,14 +69,25 @@ interface Provider {
   }>
 }
 
+interface PaymentHistory {
+  id: string
+  description: string
+  amount: number
+  date: string
+  notes?: string
+  projectName?: string
+}
+
 export default function ProviderDetailPage() {
   const params = useParams()
   const router = useRouter()
   const providerId = params.id as string
 
   const [provider, setProvider] = useState<Provider | null>(null)
+  const [paymentHistory, setPaymentHistory] = useState<PaymentHistory[]>([])
   const [loading, setLoading] = useState(true)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
 
   const [form, setForm] = useState({
@@ -94,6 +107,7 @@ export default function ProviderDetailPage() {
   useEffect(() => {
     if (providerId) {
       fetchProvider()
+      fetchPaymentHistory()
     }
   }, [providerId])
 
@@ -125,6 +139,18 @@ export default function ProviderDetailPage() {
       toast.error('Erreur lors du chargement du prestataire')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchPaymentHistory = async () => {
+    try {
+      const response = await fetch(`/api/providers/${providerId}/payments`)
+      if (response.ok) {
+        const data = await response.json()
+        setPaymentHistory(data)
+      }
+    } catch (error) {
+      console.error('Erreur lors du chargement de l\'historique des paiements:', error)
     }
   }
 
@@ -247,173 +273,186 @@ export default function ProviderDetailPage() {
             </div>
           </div>
         </div>
-        <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Edit className="w-4 h-4 mr-2" />
-              Modifier
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[600px]">
-            <DialogHeader>
-              <DialogTitle>Modifier le prestataire</DialogTitle>
-              <DialogDescription>
-                Modifiez les informations du prestataire
-              </DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Nom *</Label>
-                  <Input
-                    id="name"
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={form.email}
-                    onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="phone">Téléphone</Label>
-                  <Input
-                    id="phone"
-                    value={form.phone}
-                    onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="role">Spécialité/Rôle</Label>
-                  <Input
-                    id="role"
-                    value={form.role}
-                    onChange={(e) => setForm({ ...form, role: e.target.value })}
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="company">Entreprise</Label>
-                  <Input
-                    id="company"
-                    value={form.company}
-                    onChange={(e) => setForm({ ...form, company: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="address">Adresse</Label>
-                  <Input
-                    id="address"
-                    value={form.address}
-                    onChange={(e) => setForm({ ...form, address: e.target.value })}
-                  />
-                </div>
-              </div>
-              {/* Photo */}
-              <div className="grid gap-2">
-                <Label>Photo du prestataire</Label>
-                <div className="flex items-center gap-4">
-                  {form.photo ? (
-                    <div className="relative">
-                      <Avatar className="h-16 w-16">
-                        <AvatarImage src={form.photo} />
-                        <AvatarFallback>{form.name.charAt(0)}</AvatarFallback>
-                      </Avatar>
-                      <Button
-                        type="button"
-                        variant="destructive"
-                        size="sm"
-                        className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0"
-                        onClick={() => setForm(prev => ({ ...prev, photo: "" }))}
-                      >
-                        <X className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  ) : (
-                    <Avatar className="h-16 w-16">
-                      <AvatarFallback>
-                        <Upload className="h-6 w-6" />
-                      </AvatarFallback>
-                    </Avatar>
-                  )}
-                  <div>
-                    <Input
-                      type="file"
-                      accept="image/*"
-                      onChange={handlePhotoUpload}
-                      disabled={uploading}
-                      className="hidden"
-                      id="photo-upload"
-                    />
-                    <Label htmlFor="photo-upload" className="cursor-pointer">
-                      <Button type="button" variant="outline" disabled={uploading} asChild>
-                        <span>
-                          {uploading ? 'Upload...' : 'Choisir une photo'}
-                        </span>
-                      </Button>
-                    </Label>
-                  </div>
-                </div>
-              </div>
-              
-              {/* Informations bancaires */}
-              <div className="border-t pt-4">
-                <h4 className="font-medium mb-3">Informations bancaires</h4>
+        <div className="flex items-center gap-2">
+          {/* Bouton de paiement */}
+          <Button 
+            onClick={() => setIsPaymentDialogOpen(true)}
+            className="bg-green-600 hover:bg-green-700"
+          >
+            <Wallet className="w-4 h-4 mr-2" />
+            Payer
+          </Button>
+          
+          <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline">
+                <Edit className="w-4 h-4 mr-2" />
+                Modifier
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[600px]">
+              <DialogHeader>
+                <DialogTitle>Modifier le prestataire</DialogTitle>
+                <DialogDescription>
+                  Modifiez les informations du prestataire
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="bankName">Banque</Label>
+                    <Label htmlFor="name">Nom *</Label>
                     <Input
-                      id="bankName"
-                      value={form.bankName}
-                      onChange={(e) => setForm({ ...form, bankName: e.target.value })}
+                      id="name"
+                      value={form.name}
+                      onChange={(e) => setForm({ ...form, name: e.target.value })}
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="bankAccount">Numéro de compte</Label>
+                    <Label htmlFor="email">Email</Label>
                     <Input
-                      id="bankAccount"
-                      value={form.bankAccount}
-                      onChange={(e) => setForm({ ...form, bankAccount: e.target.value })}
+                      id="email"
+                      type="email"
+                      value={form.email}
+                      onChange={(e) => setForm({ ...form, email: e.target.value })}
                     />
                   </div>
                 </div>
-                <div className="space-y-2 mt-4">
-                  <Label htmlFor="bankIban">IBAN</Label>
-                  <Input
-                    id="bankIban"
-                    value={form.bankIban}
-                    onChange={(e) => setForm({ ...form, bankIban: e.target.value })}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="phone">Téléphone</Label>
+                    <Input
+                      id="phone"
+                      value={form.phone}
+                      onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="role">Spécialité/Rôle</Label>
+                    <Input
+                      id="role"
+                      value={form.role}
+                      onChange={(e) => setForm({ ...form, role: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="company">Entreprise</Label>
+                    <Input
+                      id="company"
+                      value={form.company}
+                      onChange={(e) => setForm({ ...form, company: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="address">Adresse</Label>
+                    <Input
+                      id="address"
+                      value={form.address}
+                      onChange={(e) => setForm({ ...form, address: e.target.value })}
+                    />
+                  </div>
+                </div>
+                {/* Photo */}
+                <div className="grid gap-2">
+                  <Label>Photo du prestataire</Label>
+                  <div className="flex items-center gap-4">
+                    {form.photo ? (
+                      <div className="relative">
+                        <Avatar className="h-16 w-16">
+                          <AvatarImage src={form.photo} />
+                          <AvatarFallback>{form.name.charAt(0)}</AvatarFallback>
+                        </Avatar>
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0"
+                          onClick={() => setForm(prev => ({ ...prev, photo: "" }))}
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <Avatar className="h-16 w-16">
+                        <AvatarFallback>
+                          <Upload className="h-6 w-6" />
+                        </AvatarFallback>
+                      </Avatar>
+                    )}
+                    <div>
+                      <Input
+                        type="file"
+                        accept="image/*"
+                        onChange={handlePhotoUpload}
+                        disabled={uploading}
+                        className="hidden"
+                        id="photo-upload"
+                      />
+                      <Label htmlFor="photo-upload" className="cursor-pointer">
+                        <Button type="button" variant="outline" disabled={uploading} asChild>
+                          <span>
+                            {uploading ? 'Upload...' : 'Choisir une photo'}
+                          </span>
+                        </Button>
+                      </Label>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Informations bancaires */}
+                <div className="border-t pt-4">
+                  <h4 className="font-medium mb-3">Informations bancaires</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="bankName">Banque</Label>
+                      <Input
+                        id="bankName"
+                        value={form.bankName}
+                        onChange={(e) => setForm({ ...form, bankName: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="bankAccount">Numéro de compte</Label>
+                      <Input
+                        id="bankAccount"
+                        value={form.bankAccount}
+                        onChange={(e) => setForm({ ...form, bankAccount: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 mt-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="bankIban">IBAN</Label>
+                      <Input
+                        id="bankIban"
+                        value={form.bankIban}
+                        onChange={(e) => setForm({ ...form, bankIban: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="notes">Notes</Label>
+                  <Textarea
+                    id="notes"
+                    value={form.notes}
+                    onChange={(e) => setForm({ ...form, notes: e.target.value })}
                   />
                 </div>
               </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="notes">Notes</Label>
-                <Textarea
-                  id="notes"
-                  value={form.notes}
-                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
-                Annuler
-              </Button>
-              <Button onClick={handleUpdateProvider} disabled={!form.name}>
-                Mettre à jour
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+                  Annuler
+                </Button>
+                <Button onClick={handleUpdateProvider} disabled={!form.name}>
+                  Mettre à jour
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       {/* Métriques */}
@@ -526,6 +565,34 @@ export default function ProviderDetailPage() {
               </div>
             )}
 
+            {/* Informations Wave */}
+            <div className="pt-4 border-t">
+              <h4 className="font-medium mb-3 flex items-center gap-2">
+                <Wallet className="h-4 w-4" />
+                Paiements Wave
+              </h4>
+              <div className="space-y-2 text-sm">
+                {provider.phone ? (
+                  <div className="flex items-center gap-2">
+                    <Badge className="bg-green-100 text-green-800">
+                      <CreditCard className="w-3 h-3 mr-1" />
+                      Wave disponible
+                    </Badge>
+                    <span className="text-muted-foreground">Téléphone: {provider.phone}</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">
+                      Wave non disponible
+                    </Badge>
+                    <span className="text-muted-foreground text-xs">
+                      Ajoutez un numéro de téléphone pour activer les paiements Wave
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
             {provider.notes && (
               <div className="pt-4 border-t">
                 <h4 className="font-medium mb-2">Notes</h4>
@@ -594,6 +661,83 @@ export default function ProviderDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Historique des paiements */}
+      {paymentHistory.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+        >
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Wallet className="h-5 w-5" />
+                Historique des paiements
+              </CardTitle>
+              <CardDescription>
+                Tous les paiements effectués à ce prestataire
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {paymentHistory.map((payment) => (
+                  <div key={payment.id} className="flex items-center justify-between p-3 border rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                        <Wallet className="w-4 h-4 text-green-600" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-sm">{payment.description}</p>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>{new Date(payment.date).toLocaleDateString('fr-FR')}</span>
+                          {payment.projectName && (
+                            <>
+                              <span>•</span>
+                              <span>{payment.projectName}</span>
+                            </>
+                          )}
+                        </div>
+                        {payment.notes && (
+                          <p className="text-xs text-muted-foreground mt-1">{payment.notes}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-semibold text-green-600">{formatCurrency(payment.amount)}</p>
+                      <Badge variant="outline" className="text-xs">
+                        Payé
+                      </Badge>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+
+      {/* Dialog de paiement */}
+      <ProviderPaymentDialog
+        isOpen={isPaymentDialogOpen}
+        onClose={() => setIsPaymentDialogOpen(false)}
+        provider={{
+          id: provider.id,
+          name: provider.name,
+          email: provider.email,
+          phone: provider.phone,
+          bankName: provider.bankName,
+          bankAccount: provider.bankAccount,
+          bankIban: provider.bankIban
+        }}
+        onPaymentSuccess={() => {
+          fetchProvider()
+          fetchPaymentHistory()
+          toast.success('Paiement traité avec succès !')
+        }}
+        title={`Payer ${provider.name}`}
+        description="Effectuez un paiement vers ce prestataire"
+      />
     </div>
   )
 } 
