@@ -152,7 +152,8 @@ export default function TasksPage() {
         resetForm()
         fetchTasks()
       } else {
-        toast.error('Erreur lors de la création de la tâche')
+        const error = await response.json()
+        toast.error(error.message || 'Erreur lors de la création de la tâche')
       }
     } catch (error) {
       console.error('Erreur:', error)
@@ -183,7 +184,8 @@ export default function TasksPage() {
         resetForm()
         fetchTasks()
       } else {
-        toast.error('Erreur lors de la mise à jour de la tâche')
+        const error = await response.json()
+        toast.error(error.message || 'Erreur lors de la mise à jour de la tâche')
       }
     } catch (error) {
       console.error('Erreur:', error)
@@ -425,6 +427,24 @@ export default function TasksPage() {
                   </SelectContent>
                 </Select>
               </div>
+              
+              <div className="grid gap-2">
+                <Label htmlFor="parentTask">Tâche parente (optionnel)</Label>
+                <Select value={formData.parentId} onValueChange={(value) => setFormData({...formData, parentId: value})}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Sélectionner une tâche parente" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Aucune tâche parente</SelectItem>
+                    {tasks.filter(t => t.status !== 'DONE').map((task) => (
+                      <SelectItem key={task.id} value={task.id}>
+                        {task.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
               <div className="grid gap-2">
                 <Label htmlFor="dueDate">Date d'échéance</Label>
                 <Input
@@ -570,6 +590,12 @@ export default function TasksPage() {
                           📁 {task.project.name}
                         </CardDescription>
                       )}
+                      
+                      {task.parent && (
+                        <CardDescription className="text-xs text-purple-600">
+                          ↳ Sous-tâche de: {task.parent.title}
+                        </CardDescription>
+                      )}
                     </CardHeader>
                     <CardContent className="pt-0">
                       {task.description && (
@@ -706,6 +732,24 @@ export default function TasksPage() {
                 </SelectContent>
               </Select>
             </div>
+            
+            <div className="grid gap-2">
+              <Label htmlFor="edit-parentTask">Tâche parente (optionnel)</Label>
+              <Select value={formData.parentId} onValueChange={(value) => setFormData({...formData, parentId: value})}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Sélectionner une tâche parente" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Aucune tâche parente</SelectItem>
+                  {tasks.filter(t => t.status !== 'DONE' && t.id !== selectedTask?.id).map((task) => (
+                    <SelectItem key={task.id} value={task.id}>
+                      {task.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
             <div className="grid gap-2">
               <Label htmlFor="edit-dueDate">Date d'échéance</Label>
               <Input

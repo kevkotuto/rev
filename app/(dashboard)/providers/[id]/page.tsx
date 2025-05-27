@@ -19,7 +19,9 @@ import {
   FileText,
   Eye,
   CreditCard,
-  Banknote
+  Banknote,
+  Upload,
+  X
 } from "lucide-react"
 import {
   Dialog,
@@ -73,6 +75,7 @@ export default function ProviderDetailPage() {
   const [provider, setProvider] = useState<Provider | null>(null)
   const [loading, setLoading] = useState(true)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [uploading, setUploading] = useState(false)
 
   const [form, setForm] = useState({
     name: "",
@@ -144,6 +147,36 @@ export default function ProviderDetailPage() {
     } catch (error) {
       console.error('Erreur:', error)
       toast.error('Erreur lors de la mise à jour')
+    }
+  }
+
+  const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    setUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('type', 'photo')
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setForm(prev => ({ ...prev, photo: data.url }))
+        toast.success('Photo uploadée avec succès')
+      } else {
+        toast.error('Erreur lors de l\'upload de la photo')
+      }
+    } catch (error) {
+      console.error('Erreur upload:', error)
+      toast.error('Erreur lors de l\'upload de la photo')
+    } finally {
+      setUploading(false)
     }
   }
 
@@ -284,14 +317,51 @@ export default function ProviderDetailPage() {
                   />
                 </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="photo">URL de la photo</Label>
-                <Input
-                  id="photo"
-                  value={form.photo}
-                  onChange={(e) => setForm({ ...form, photo: e.target.value })}
-                  placeholder="https://exemple.com/photo.jpg"
-                />
+              {/* Photo */}
+              <div className="grid gap-2">
+                <Label>Photo du prestataire</Label>
+                <div className="flex items-center gap-4">
+                  {form.photo ? (
+                    <div className="relative">
+                      <Avatar className="h-16 w-16">
+                        <AvatarImage src={form.photo} />
+                        <AvatarFallback>{form.name.charAt(0)}</AvatarFallback>
+                      </Avatar>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0"
+                        onClick={() => setForm(prev => ({ ...prev, photo: "" }))}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <Avatar className="h-16 w-16">
+                      <AvatarFallback>
+                        <Upload className="h-6 w-6" />
+                      </AvatarFallback>
+                    </Avatar>
+                  )}
+                  <div>
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      onChange={handlePhotoUpload}
+                      disabled={uploading}
+                      className="hidden"
+                      id="photo-upload"
+                    />
+                    <Label htmlFor="photo-upload" className="cursor-pointer">
+                      <Button type="button" variant="outline" disabled={uploading} asChild>
+                        <span>
+                          {uploading ? 'Upload...' : 'Choisir une photo'}
+                        </span>
+                      </Button>
+                    </Label>
+                  </div>
+                </div>
               </div>
               
               {/* Informations bancaires */}

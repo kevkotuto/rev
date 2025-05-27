@@ -19,11 +19,23 @@ import {
   UserCheck,
   CheckSquare,
   Clock,
-  AlertTriangle
+  AlertTriangle,
+  Calendar,
+  Filter
 } from "lucide-react"
 import { motion } from "motion/react"
 import { QuickTaskEditor } from "@/components/quick-task-editor"
 import { AIDashboardInsights } from "@/components/ai-dashboard-insights"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+
 
 
 interface DashboardStats {
@@ -80,6 +92,23 @@ interface DashboardStats {
   }
 }
 
+// Types pour les périodes
+type DatePeriod = 'global' | '7d' | '30d' | '90d' | '1y' | 'custom'
+
+interface DateRange {
+  startDate: string
+  endDate: string
+}
+
+const predefinedPeriods = [
+  { value: 'global', label: 'Toutes les données' },
+  { value: '7d', label: '7 derniers jours' },
+  { value: '30d', label: '30 derniers jours' },
+  { value: '90d', label: '3 derniers mois' },
+  { value: '1y', label: '12 derniers mois' },
+  { value: 'custom', label: 'Période personnalisée' }
+]
+
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [loading, setLoading] = useState(true)
@@ -87,15 +116,61 @@ export default function DashboardPage() {
   const [loadingBalance, setLoadingBalance] = useState(false)
   const [aiAnalysis, setAiAnalysis] = useState<any>(null)
   const [loadingAnalysis, setLoadingAnalysis] = useState(false)
+  
+  // États pour les filtres de période
+  const [selectedPeriod, setSelectedPeriod] = useState<DatePeriod>('30d')
+  const [customDateRange, setCustomDateRange] = useState<DateRange>({
+    startDate: '',
+    endDate: ''
+  })
+  const [showCustomDatePicker, setShowCustomDatePicker] = useState(false)
 
   useEffect(() => {
     fetchStats()
     fetchWaveBalance()
-  }, [])
+  }, [selectedPeriod, customDateRange])
+
+  // Fonction pour calculer les dates en fonction de la période
+  const getDateRangeForPeriod = (period: DatePeriod): { startDate?: string, endDate?: string } => {
+    const now = new Date()
+    const today = now.toISOString().split('T')[0]
+    
+    switch (period) {
+      case 'global':
+        return {}
+      case '7d':
+        const week = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+        return { startDate: week.toISOString().split('T')[0], endDate: today }
+      case '30d':
+        const month = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+        return { startDate: month.toISOString().split('T')[0], endDate: today }
+      case '90d':
+        const quarter = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
+        return { startDate: quarter.toISOString().split('T')[0], endDate: today }
+      case '1y':
+        const year = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000)
+        return { startDate: year.toISOString().split('T')[0], endDate: today }
+      case 'custom':
+        return customDateRange.startDate && customDateRange.endDate 
+          ? { startDate: customDateRange.startDate, endDate: customDateRange.endDate }
+          : {}
+      default:
+        return {}
+    }
+  }
 
   const fetchStats = async () => {
     try {
-      const response = await fetch('/api/dashboard/stats')
+      setLoading(true)
+      const dateRange = getDateRangeForPeriod(selectedPeriod)
+      const params = new URLSearchParams()
+      
+      if (dateRange.startDate) params.append('startDate', dateRange.startDate)
+      if (dateRange.endDate) params.append('endDate', dateRange.endDate)
+      
+      const url = `/api/dashboard/stats${params.toString() ? `?${params.toString()}` : ''}`
+      const response = await fetch(url)
+      
       if (response.ok) {
         const data = await response.json()
         setStats(data)
@@ -179,28 +254,157 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground">
-            Vue d'ensemble de votre activité freelance
-          </p>
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+            <p className="text-muted-foreground">
+              Vue d'ensemble de votre activité freelance
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={generateAIAnalysis} disabled={loadingAnalysis}>
+              {loadingAnalysis ? (
+                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Brain className="mr-2 h-4 w-4" />
+              )}
+              Analyse IA
+            </Button>
+            <Button>
+              <Plus className="mr-2 h-4 w-4" />
+              Nouveau projet
+            </Button>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={generateAIAnalysis} disabled={loadingAnalysis}>
-            {loadingAnalysis ? (
-              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Brain className="mr-2 h-4 w-4" />
-            )}
-            Analyse IA
-          </Button>
-          <Button>
-            <Plus className="mr-2 h-4 w-4" />
-            Nouveau projet
-          </Button>
+
+        {/* Sélecteur de période */}
+        <div className="flex items-center gap-4 p-4 bg-muted/50 rounded-lg">
+          <div className="flex items-center gap-2">
+            <Calendar className="h-4 w-4 text-muted-foreground" />
+            <Label className="text-sm font-medium">Période :</Label>
+          </div>
+          
+          <Select
+            value={selectedPeriod}
+            onValueChange={(value: DatePeriod) => {
+              setSelectedPeriod(value)
+              if (value !== 'custom') {
+                setShowCustomDatePicker(false)
+              } else {
+                setShowCustomDatePicker(true)
+              }
+            }}
+          >
+            <SelectTrigger className="w-[200px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {predefinedPeriods.map((period) => (
+                <SelectItem key={period.value} value={period.value}>
+                  {period.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Dates personnalisées */}
+          {selectedPeriod === 'custom' && (
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
+                <Label className="text-xs">Du :</Label>
+                <Input
+                  type="date"
+                  value={customDateRange.startDate}
+                  onChange={(e) => setCustomDateRange(prev => ({ ...prev, startDate: e.target.value }))}
+                  className="w-auto"
+                />
+              </div>
+              <div className="flex items-center gap-1">
+                <Label className="text-xs">Au :</Label>
+                <Input
+                  type="date"
+                  value={customDateRange.endDate}
+                  onChange={(e) => setCustomDateRange(prev => ({ ...prev, endDate: e.target.value }))}
+                  className="w-auto"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Raccourcis rapides */}
+          <div className="hidden md:flex items-center gap-1">
+            {['global', '7d', '30d', '1y'].map((period) => (
+              <Button
+                key={period}
+                variant={selectedPeriod === period ? "default" : "ghost"}
+                size="sm"
+                onClick={() => {
+                  setSelectedPeriod(period as DatePeriod)
+                  setShowCustomDatePicker(false)
+                }}
+                className="text-xs h-7"
+              >
+                {predefinedPeriods.find(p => p.value === period)?.label}
+              </Button>
+            ))}
+          </div>
+
+          {/* Indicateur de période active */}
+          <div className="flex items-center gap-2 ml-auto">
+            <Badge variant="outline" className="flex items-center gap-1">
+              <Filter className="h-3 w-3" />
+              {(() => {
+                const period = predefinedPeriods.find(p => p.value === selectedPeriod)
+                if (selectedPeriod === 'custom' && customDateRange.startDate && customDateRange.endDate) {
+                  return `${customDateRange.startDate} → ${customDateRange.endDate}`
+                }
+                return period?.label || 'Période sélectionnée'
+              })()}
+            </Badge>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => fetchStats()}
+              disabled={loading}
+              className="h-7 px-2"
+            >
+              <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
         </div>
       </div>
+
+      {/* Informations sur la période */}
+      {(selectedPeriod !== 'global' && stats) && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <Card className="border-blue-200 bg-blue-50/50">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Calendar className="h-4 w-4 text-blue-600" />
+                  <span className="text-sm font-medium text-blue-900">
+                    Période active : {predefinedPeriods.find(p => p.value === selectedPeriod)?.label}
+                  </span>
+                  {selectedPeriod === 'custom' && customDateRange.startDate && customDateRange.endDate && (
+                    <span className="text-xs text-blue-700">
+                      ({customDateRange.startDate} → {customDateRange.endDate})
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-4 text-xs text-blue-700">
+                  <span>{stats.recentActivities.invoices.length} factures</span>
+                  <span>{stats.recentActivities.projects.length} projets</span>
+                  <span className="font-medium">{formatCurrency(stats.financial.totalRevenue)}</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
@@ -297,7 +501,15 @@ export default function DashboardPage() {
               <CardTitle className="text-sm font-medium">Solde Wave</CardTitle>
               <div className="flex items-center gap-2">
                 <Zap className="h-4 w-4 text-orange-500" />
-                {loadingBalance && <RefreshCw className="h-3 w-3 animate-spin" />}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={fetchWaveBalance}
+                  disabled={loadingBalance}
+                  className="h-6 w-6 p-0"
+                >
+                  <RefreshCw className={`h-3 w-3 ${loadingBalance ? 'animate-spin' : ''}`} />
+                </Button>
               </div>
             </CardHeader>
             <CardContent>
@@ -311,7 +523,7 @@ export default function DashboardPage() {
                     }).format(waveBalance.balance)}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Solde disponible • Mis à jour: {new Date(waveBalance.lastUpdated).toLocaleTimeString('fr-FR')}
+                    Solde disponible • Mis à jour: {new Date().toLocaleTimeString('fr-FR')}
                   </p>
                 </div>
               ) : (
@@ -550,7 +762,10 @@ export default function DashboardPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.5 }}
         >
-          <AIDashboardInsights />
+          <AIDashboardInsights 
+            selectedPeriod={selectedPeriod}
+            customDateRange={customDateRange}
+          />
         </motion.div>
 
         {/* Tâches rapides */}

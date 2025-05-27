@@ -17,7 +17,10 @@ import {
   MapPin,
   Building,
   CreditCard,
-  UserCheck
+  UserCheck,
+  Upload,
+  X,
+  Eye
 } from "lucide-react"
 import {
   Dialog,
@@ -55,6 +58,7 @@ export default function ProvidersPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null)
+  const [uploading, setUploading] = useState(false)
 
   const [form, setForm] = useState({
     name: "",
@@ -132,6 +136,36 @@ export default function ProvidersPage() {
     } catch (error) {
       console.error('Erreur:', error)
       toast.error('Erreur lors de la suppression')
+    }
+  }
+
+  const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    setUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('type', 'photo')
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setForm(prev => ({ ...prev, photo: data.url }))
+        toast.success('Photo uploadée avec succès')
+      } else {
+        toast.error('Erreur lors de l\'upload de la photo')
+      }
+    } catch (error) {
+      console.error('Erreur upload:', error)
+      toast.error('Erreur lors de l\'upload de la photo')
+    } finally {
+      setUploading(false)
     }
   }
 
@@ -216,6 +250,53 @@ export default function ProvidersPage() {
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
+              {/* Photo */}
+              <div className="grid gap-2">
+                <Label>Photo du prestataire</Label>
+                <div className="flex items-center gap-4">
+                  {form.photo ? (
+                    <div className="relative">
+                      <Avatar className="h-16 w-16">
+                        <AvatarImage src={form.photo} />
+                        <AvatarFallback>{form.name.charAt(0)}</AvatarFallback>
+                      </Avatar>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0"
+                        onClick={() => setForm(prev => ({ ...prev, photo: "" }))}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <Avatar className="h-16 w-16">
+                      <AvatarFallback>
+                        <Upload className="h-6 w-6" />
+                      </AvatarFallback>
+                    </Avatar>
+                  )}
+                  <div>
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      onChange={handlePhotoUpload}
+                      disabled={uploading}
+                      className="hidden"
+                      id="photo-upload"
+                    />
+                    <Label htmlFor="photo-upload" className="cursor-pointer">
+                      <Button type="button" variant="outline" disabled={uploading} asChild>
+                        <span>
+                          {uploading ? 'Upload...' : 'Choisir une photo'}
+                        </span>
+                      </Button>
+                    </Label>
+                  </div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="name">Nom *</Label>
@@ -381,6 +462,13 @@ export default function ProvidersPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => window.location.href = `/providers/${provider.id}`}
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
                     <Button
                       variant="ghost"
                       size="sm"

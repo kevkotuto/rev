@@ -85,7 +85,7 @@ export async function GET(
 // PUT - Mettre à jour les informations de paiement
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -97,10 +97,11 @@ export async function PUT(
       )
     }
 
+    const { id } = await params
     const body = await request.json()
-    const { id } = params
+    const { isPaid, paymentMethod, paidAt } = body
 
-    // Vérifier que le ProjectProvider appartient à l'utilisateur via le projet
+    // Vérifier que la relation projet-prestataire existe et appartient à l'utilisateur
     const projectProvider = await prisma.projectProvider.findFirst({
       where: {
         id,
@@ -121,26 +122,41 @@ export async function PUT(
       )
     }
 
+    // Mise à jour avec gestion des valeurs null
+    const updateData: any = {
+      isPaid: Boolean(isPaid)
+    }
+
+    // Si on marque comme payé, on ajoute les informations de paiement
+    if (isPaid) {
+      updateData.paymentMethod = paymentMethod || 'CASH'
+      updateData.paidDate = paidAt ? new Date(paidAt) : new Date()
+    } else {
+      // Si on marque comme non payé, on supprime les informations de paiement
+      updateData.paymentMethod = null
+      updateData.paidDate = null
+    }
+
     const updatedProjectProvider = await prisma.projectProvider.update({
-      where: {
-        id
-      },
-      data: {
-        isPaid: body.isPaid,
-        paidDate: body.isPaid ? new Date() : null,
-        paymentMethod: body.paymentMethod || 'CASH'
-      },
+      where: { id },
+      data: updateData,
       include: {
         project: true,
         provider: true
       }
     })
 
-    return NextResponse.json(updatedProjectProvider)
+    const statusMessage = isPaid ? 'payé' : 'non payé'
+
+    return NextResponse.json({
+      projectProvider: updatedProjectProvider,
+      message: `Prestataire marqué comme ${statusMessage} avec succès`
+    })
+
   } catch (error) {
-    console.error("Erreur lors de la mise à jour du ProjectProvider:", error)
+    console.error("Erreur lors de la mise à jour du statut de paiement:", error)
     return NextResponse.json(
-      { message: "Erreur lors de la mise à jour du paiement" },
+      { message: "Erreur lors de la mise à jour du statut de paiement" },
       { status: 500 }
     )
   }

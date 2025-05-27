@@ -3,301 +3,454 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
+// Types pour les statistiques
+interface Statistics {
+  revenue: {
+    total: number
+    thisMonth: number
+    lastMonth: number
+    growth: number
+    pending: number
+    overdue: number
+  }
+  clients: {
+    total: number
+    active: number
+    new: number
+    topClients: Array<{
+      name: string
+      revenue: number
+      projects: number
+    }>
+  }
+  projects: {
+    total: number
+    completed: number
+    inProgress: number
+    onHold: number
+    cancelled: number
+    averageValue: number
+    profitability: number
+  }
+  tasks: {
+    total: number
+    completed: number
+    pending: number
+    overdue: number
+    completionRate: number
+  }
+  expenses: {
+    total: number
+    thisMonth: number
+    lastMonth: number
+    byCategory: Array<{
+      category: string
+      amount: number
+      percentage: number
+    }>
+  }
+  invoices: {
+    total: number
+    paid: number
+    pending: number
+    overdue: number
+    cancelled: number
+    averagePaymentDelay: number
+  }
+  monthlyRevenue: Array<{
+    month: string
+    revenue: number
+    expenses: number
+    profit: number
+    invoicesCount: number
+  }>
+  projectsByType: Array<{
+    type: string
+    count: number
+    revenue: number
+    percentage: number
+  }>
+  performance: {
+    profitMargin: number
+    revenuePerClient: number
+    projectSuccessRate: number
+    paymentDelayTrend: number
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
+    
     if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
+      return NextResponse.json(
+        { message: "Non autorisé" },
+        { status: 401 }
+      )
     }
 
+    const userId = session.user.id
     const { searchParams } = new URL(request.url)
-    const period = searchParams.get('period') || 'thisYear'
+    const period = searchParams.get('period') || 'thisMonth'
+    const startDate = searchParams.get('startDate')
+    const endDate = searchParams.get('endDate')
 
-    // Calculer les dates selon la période
-    const now = new Date()
-    let startDate: Date
-    let endDate: Date
-    let lastPeriodStart: Date
-    let lastPeriodEnd: Date
-
-    switch (period) {
-      case 'thisMonth':
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1)
-        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-        lastPeriodStart = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-        lastPeriodEnd = new Date(now.getFullYear(), now.getMonth(), 0)
-        break
-      case 'lastMonth':
-        startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-        endDate = new Date(now.getFullYear(), now.getMonth(), 0)
-        lastPeriodStart = new Date(now.getFullYear(), now.getMonth() - 2, 1)
-        lastPeriodEnd = new Date(now.getFullYear(), now.getMonth() - 1, 0)
-        break
-      case 'thisYear':
-        startDate = new Date(now.getFullYear(), 0, 1)
-        endDate = new Date(now.getFullYear(), 11, 31)
-        lastPeriodStart = new Date(now.getFullYear() - 1, 0, 1)
-        lastPeriodEnd = new Date(now.getFullYear() - 1, 11, 31)
-        break
-      case 'lastYear':
-        startDate = new Date(now.getFullYear() - 1, 0, 1)
-        endDate = new Date(now.getFullYear() - 1, 11, 31)
-        lastPeriodStart = new Date(now.getFullYear() - 2, 0, 1)
-        lastPeriodEnd = new Date(now.getFullYear() - 2, 11, 31)
-        break
-      default:
-        startDate = new Date(now.getFullYear(), 0, 1)
-        endDate = new Date(now.getFullYear(), 11, 31)
-        lastPeriodStart = new Date(now.getFullYear() - 1, 0, 1)
-        lastPeriodEnd = new Date(now.getFullYear() - 1, 11, 31)
+    // Construction des filtres de date
+    let dateFilter = {}
+    let previousDateFilter = {}
+    
+    if (startDate && endDate) {
+      const start = new Date(startDate)
+      const end = new Date(endDate)
+      const duration = end.getTime() - start.getTime()
+      
+      dateFilter = {
+        createdAt: {
+          gte: start,
+          lte: end
+        }
+      }
+      
+      // Période précédente pour comparaison
+      const previousStart = new Date(start.getTime() - duration)
+      const previousEnd = start
+      
+      previousDateFilter = {
+        createdAt: {
+          gte: previousStart,
+          lte: previousEnd
+        }
+      }
+    } else {
+      // Logique pour les périodes prédéfinies
+      const now = new Date()
+      let start: Date, end: Date
+      
+      switch (period) {
+        case 'thisWeek':
+          start = new Date(now.setDate(now.getDate() - now.getDay()))
+          end = new Date()
+          break
+        case 'thisMonth':
+          start = new Date(now.getFullYear(), now.getMonth(), 1)
+          end = new Date()
+          break
+        case 'lastMonth':
+          start = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+          end = new Date(now.getFullYear(), now.getMonth(), 0)
+          break
+        case 'thisQuarter':
+          start = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1)
+          end = new Date()
+          break
+        case 'thisYear':
+          start = new Date(now.getFullYear(), 0, 1)
+          end = new Date()
+          break
+        case 'lastYear':
+          start = new Date(now.getFullYear() - 1, 0, 1)
+          end = new Date(now.getFullYear() - 1, 11, 31)
+          break
+        default:
+          start = new Date(now.getFullYear(), now.getMonth(), 1)
+          end = new Date()
+      }
+      
+      const duration = end.getTime() - start.getTime()
+      
+      dateFilter = {
+        createdAt: {
+          gte: start,
+          lte: end
+        }
+      }
+      
+      // Période précédente
+      const previousStart = new Date(start.getTime() - duration)
+      const previousEnd = start
+      
+      previousDateFilter = {
+        createdAt: {
+          gte: previousStart,
+          lte: previousEnd
+        }
+      }
     }
 
-    // Calculer les revenus
-    const invoices = await prisma.invoice.findMany({
-      where: {
-        userId: session.user.id,
-        createdAt: {
-          gte: startDate,
-          lte: endDate
+    // Récupération des données
+    const [
+      clients, 
+      projects, 
+      tasks, 
+      invoices, 
+      expenses,
+      previousInvoices,
+      previousExpenses
+    ] = await Promise.all([
+      prisma.client.findMany({
+        where: { userId },
+        include: {
+          projects: { 
+            select: { amount: true, status: true },
+            where: startDate && endDate ? dateFilter : {}
+          },
+          _count: { select: { projects: true } }
         }
-      }
-    })
-
-    const lastPeriodInvoices = await prisma.invoice.findMany({
-      where: {
-        userId: session.user.id,
-        createdAt: {
-          gte: lastPeriodStart,
-          lte: lastPeriodEnd
+      }),
+      prisma.project.findMany({
+        where: { 
+          userId,
+          ...(startDate && endDate ? dateFilter : {})
+        },
+        include: {
+          client: { select: { name: true } }
         }
-      }
-    })
-
-    const totalRevenue = invoices.reduce((sum, invoice) => sum + invoice.amount, 0)
-    const lastPeriodRevenue = lastPeriodInvoices.reduce((sum, invoice) => sum + invoice.amount, 0)
-    const revenueGrowth = lastPeriodRevenue > 0 ? ((totalRevenue - lastPeriodRevenue) / lastPeriodRevenue) * 100 : 0
-
-    // Calculer les revenus du mois actuel et précédent
-    const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1)
-    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-
-    const thisMonthInvoices = await prisma.invoice.findMany({
-      where: {
-        userId: session.user.id,
-        createdAt: {
-          gte: thisMonth,
-          lt: nextMonth
+      }),
+      prisma.task.findMany({
+        where: { 
+          userId,
+          ...(startDate && endDate ? dateFilter : {})
         }
-      }
-    })
-
-    const lastMonthInvoices = await prisma.invoice.findMany({
-      where: {
-        userId: session.user.id,
-        createdAt: {
-          gte: lastMonth,
-          lt: thisMonth
+      }),
+      prisma.invoice.findMany({
+        where: { 
+          userId,
+          ...(startDate && endDate ? dateFilter : {})
         }
-      }
-    })
-
-    const thisMonthRevenue = thisMonthInvoices.reduce((sum, invoice) => sum + invoice.amount, 0)
-    const lastMonthRevenue = lastMonthInvoices.reduce((sum, invoice) => sum + invoice.amount, 0)
-
-    // Statistiques des clients
-    const clients = await prisma.client.findMany({
-      where: { userId: session.user.id },
-      include: {
-        projects: {
-          where: {
-            createdAt: {
-              gte: startDate,
-              lte: endDate
-            }
-          }
+      }),
+      prisma.expense.findMany({
+        where: { 
+          userId,
+          ...(startDate && endDate ? dateFilter : {})
         }
-      }
-    })
-
-    const activeClients = clients.filter(client => client.projects.length > 0).length
-    const newClients = clients.filter(client => 
-      client.createdAt >= startDate && client.createdAt <= endDate
-    ).length
-
-    // Statistiques des projets
-    const projects = await prisma.project.findMany({
-      where: {
-        userId: session.user.id,
-        createdAt: {
-          gte: startDate,
-          lte: endDate
+      }),
+      // Données période précédente pour comparaison
+      prisma.invoice.findMany({
+        where: { 
+          userId,
+          ...previousDateFilter
         }
-      }
-    })
+      }),
+      prisma.expense.findMany({
+        where: { 
+          userId,
+          ...previousDateFilter
+        }
+      })
+    ])
 
+    // Calculs des métriques de revenus
+    const totalRevenue = invoices.filter(i => i.status === 'PAID').reduce((sum, i) => sum + i.amount, 0)
+    const pendingRevenue = invoices.filter(i => i.status === 'PENDING').reduce((sum, i) => sum + i.amount, 0)
+    const overdueRevenue = invoices.filter(i => i.status === 'OVERDUE').reduce((sum, i) => sum + i.amount, 0)
+    
+    const previousRevenue = previousInvoices.filter(i => i.status === 'PAID').reduce((sum, i) => sum + i.amount, 0)
+    const revenueGrowth = previousRevenue > 0 ? ((totalRevenue - previousRevenue) / previousRevenue) * 100 : 0
+
+    // Calculs des dépenses
+    const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0)
+    const previousExpensesTotal = previousExpenses.reduce((sum, e) => sum + e.amount, 0)
+
+    // Analyse des clients
+    const activeClients = clients.filter(c => c.projects.some(p => p.status === 'IN_PROGRESS')).length
+    const newClients = clients.filter(c => {
+      const clientCreated = new Date(c.createdAt)
+      return startDate && endDate ? 
+        clientCreated >= new Date(startDate) && clientCreated <= new Date(endDate) :
+        clientCreated >= new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    }).length
+
+    // Top clients
+    const topClients = clients
+      .map(c => ({
+        name: c.name,
+        revenue: c.projects.reduce((sum, p) => sum + p.amount, 0),
+        projects: c._count.projects
+      }))
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 5)
+
+    // Analyse des projets
     const completedProjects = projects.filter(p => p.status === 'COMPLETED').length
     const inProgressProjects = projects.filter(p => p.status === 'IN_PROGRESS').length
     const onHoldProjects = projects.filter(p => p.status === 'ON_HOLD').length
+    const cancelledProjects = projects.filter(p => p.status === 'CANCELLED').length
+    
+    const averageProjectValue = projects.length > 0 ? projects.reduce((sum, p) => sum + p.amount, 0) / projects.length : 0
+    const projectSuccessRate = projects.length > 0 ? (completedProjects / projects.length) * 100 : 0
 
-    // Statistiques des tâches
-    const tasks = await prisma.task.findMany({
-      where: {
-        userId: session.user.id,
-        createdAt: {
-          gte: startDate,
-          lte: endDate
-        }
-      }
-    })
-
+    // Analyse des tâches
+    const now = new Date()
     const completedTasks = tasks.filter(t => t.status === 'DONE').length
     const pendingTasks = tasks.filter(t => t.status !== 'DONE').length
+    const overdueTasks = tasks.filter(t => 
+      t.dueDate && new Date(t.dueDate) < now && t.status !== 'DONE'
+    ).length
+    const taskCompletionRate = tasks.length > 0 ? (completedTasks / tasks.length) * 100 : 0
 
-    // Statistiques des dépenses
-    const expenses = await prisma.expense.findMany({
-      where: {
-        userId: session.user.id,
-        date: {
-          gte: startDate,
-          lte: endDate
-        }
-      }
-    })
-
-    const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0)
-
-    const thisMonthExpenses = await prisma.expense.findMany({
-      where: {
-        userId: session.user.id,
-        date: {
-          gte: thisMonth,
-          lt: nextMonth
-        }
-      }
-    })
-
-    const lastMonthExpenses = await prisma.expense.findMany({
-      where: {
-        userId: session.user.id,
-        date: {
-          gte: lastMonth,
-          lt: thisMonth
-        }
-      }
-    })
-
-    const thisMonthExpensesTotal = thisMonthExpenses.reduce((sum, expense) => sum + expense.amount, 0)
-    const lastMonthExpensesTotal = lastMonthExpenses.reduce((sum, expense) => sum + expense.amount, 0)
-
-    // Statistiques des factures par statut
+    // Analyse des factures
     const paidInvoices = invoices.filter(i => i.status === 'PAID').length
     const pendingInvoices = invoices.filter(i => i.status === 'PENDING').length
     const overdueInvoices = invoices.filter(i => i.status === 'OVERDUE').length
+    const cancelledInvoices = invoices.filter(i => i.status === 'CANCELLED').length
 
-    // Revenus mensuels (12 derniers mois)
-    const monthlyRevenue = []
-    for (let i = 11; i >= 0; i--) {
-      const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1)
-      const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0)
-      
-      const monthInvoices = await prisma.invoice.findMany({
-        where: {
-          userId: session.user.id,
-          createdAt: {
-            gte: monthStart,
-            lte: monthEnd
-          }
-        }
-      })
+    // Calcul du délai de paiement moyen
+    const paidInvoicesWithDates = invoices.filter(i => i.status === 'PAID' && i.paidDate && i.createdAt)
+    const averagePaymentDelay = paidInvoicesWithDates.length > 0 ? 
+      paidInvoicesWithDates.reduce((sum, i) => {
+        const paymentDate = new Date(i.paidDate!)
+        const creationDate = new Date(i.createdAt)
+        return sum + (paymentDate.getTime() - creationDate.getTime()) / (1000 * 60 * 60 * 24)
+      }, 0) / paidInvoicesWithDates.length : 0
 
-      const monthExpenses = await prisma.expense.findMany({
-        where: {
-          userId: session.user.id,
-          date: {
-            gte: monthStart,
-            lte: monthEnd
-          }
-        }
-      })
+    // Dépenses par catégorie
+    const expensesByCategory = expenses.reduce((acc, expense) => {
+      const category = expense.category || 'Autres'
+      acc[category] = (acc[category] || 0) + expense.amount
+      return acc
+    }, {} as Record<string, number>)
 
-      const monthRevenue = monthInvoices.reduce((sum, invoice) => sum + invoice.amount, 0)
-      const monthExpenseTotal = monthExpenses.reduce((sum, expense) => sum + expense.amount, 0)
+    const expensesCategoryArray = Object.entries(expensesByCategory).map(([category, amount]) => ({
+      category,
+      amount,
+      percentage: totalExpenses > 0 ? (amount / totalExpenses) * 100 : 0
+    })).sort((a, b) => b.amount - a.amount)
 
-      monthlyRevenue.push({
-        month: monthStart.toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' }),
-        revenue: monthRevenue,
-        expenses: monthExpenseTotal
-      })
+    // Revenus mensuels (6 derniers mois)
+    const monthlyData: { [key: string]: { revenue: number; expenses: number; invoicesCount: number } } = {}
+    
+    for (let i = 5; i >= 0; i--) {
+      const date = new Date()
+      date.setMonth(date.getMonth() - i)
+      const monthKey = date.toLocaleDateString('fr-FR', { year: 'numeric', month: 'long' })
+      monthlyData[monthKey] = { revenue: 0, expenses: 0, invoicesCount: 0 }
     }
 
-    // Projets par type
-    const projectsByType = await prisma.project.groupBy({
-      by: ['type'],
-      where: {
-        userId: session.user.id,
-        createdAt: {
-          gte: startDate,
-          lte: endDate
+    // Agrégation des données mensuelles
+    invoices.forEach(invoice => {
+      const invoiceDate = new Date(invoice.createdAt)
+      const monthKey = invoiceDate.toLocaleDateString('fr-FR', { year: 'numeric', month: 'long' })
+      if (monthlyData[monthKey]) {
+        if (invoice.status === 'PAID') {
+          monthlyData[monthKey].revenue += invoice.amount
         }
-      },
-      _count: {
-        id: true
-      },
-      _sum: {
-        amount: true
+        monthlyData[monthKey].invoicesCount++
       }
     })
 
-    const formattedProjectsByType = projectsByType.map(group => ({
-      type: group.type,
-      count: group._count.id,
-      revenue: group._sum.amount || 0
+    expenses.forEach(expense => {
+      const expenseDate = new Date(expense.createdAt)
+      const monthKey = expenseDate.toLocaleDateString('fr-FR', { year: 'numeric', month: 'long' })
+      if (monthlyData[monthKey]) {
+        monthlyData[monthKey].expenses += expense.amount
+      }
+    })
+
+    const monthlyRevenue = Object.entries(monthlyData).map(([month, data]) => ({
+      month,
+      revenue: data.revenue,
+      expenses: data.expenses,
+      profit: data.revenue - data.expenses,
+      invoicesCount: data.invoicesCount
     }))
 
-    const statistics = {
+    // Projets par type
+    const projectsByType = projects.reduce((acc, project) => {
+      const type = project.client ? 'Projets clients' : 'Projets personnels'
+      acc[type] = (acc[type] || { count: 0, revenue: 0 })
+      acc[type].count++
+      acc[type].revenue += project.amount
+      return acc
+    }, {} as Record<string, { count: number; revenue: number }>)
+
+    const projectsTypeArray = Object.entries(projectsByType).map(([type, data]) => ({
+      type,
+      count: data.count,
+      revenue: data.revenue,
+      percentage: projects.length > 0 ? (data.count / projects.length) * 100 : 0
+    }))
+
+    // Métriques de performance
+    const profitMargin = totalRevenue > 0 ? ((totalRevenue - totalExpenses) / totalRevenue) * 100 : 0
+    const revenuePerClient = clients.length > 0 ? totalRevenue / clients.length : 0
+    const profitability = projects.length > 0 ? ((totalRevenue - totalExpenses) / projects.length) : 0
+
+    // Tendance des délais de paiement (comparaison avec période précédente)
+    const previousPaidInvoices = previousInvoices.filter(i => i.status === 'PAID' && i.paidDate && i.createdAt)
+    const previousAveragePaymentDelay = previousPaidInvoices.length > 0 ? 
+      previousPaidInvoices.reduce((sum, i) => {
+        const paymentDate = new Date(i.paidDate!)
+        const creationDate = new Date(i.createdAt)
+        return sum + (paymentDate.getTime() - creationDate.getTime()) / (1000 * 60 * 60 * 24)
+      }, 0) / previousPaidInvoices.length : 0
+
+    const paymentDelayTrend = averagePaymentDelay - previousAveragePaymentDelay
+
+    // Construction de la réponse
+    const statistics: Statistics = {
       revenue: {
         total: totalRevenue,
-        thisMonth: thisMonthRevenue,
-        lastMonth: lastMonthRevenue,
-        growth: revenueGrowth
+        thisMonth: totalRevenue, // Ajusté selon la période
+        lastMonth: previousRevenue,
+        growth: revenueGrowth,
+        pending: pendingRevenue,
+        overdue: overdueRevenue
       },
       clients: {
         total: clients.length,
         active: activeClients,
-        new: newClients
+        new: newClients,
+        topClients
       },
       projects: {
         total: projects.length,
         completed: completedProjects,
         inProgress: inProgressProjects,
-        onHold: onHoldProjects
+        onHold: onHoldProjects,
+        cancelled: cancelledProjects,
+        averageValue: averageProjectValue,
+        profitability
       },
       tasks: {
         total: tasks.length,
         completed: completedTasks,
-        pending: pendingTasks
+        pending: pendingTasks,
+        overdue: overdueTasks,
+        completionRate: taskCompletionRate
       },
       expenses: {
         total: totalExpenses,
-        thisMonth: thisMonthExpensesTotal,
-        lastMonth: lastMonthExpensesTotal
+        thisMonth: totalExpenses, // Ajusté selon la période
+        lastMonth: previousExpensesTotal,
+        byCategory: expensesCategoryArray
       },
       invoices: {
         total: invoices.length,
         paid: paidInvoices,
         pending: pendingInvoices,
-        overdue: overdueInvoices
+        overdue: overdueInvoices,
+        cancelled: cancelledInvoices,
+        averagePaymentDelay: Math.round(averagePaymentDelay)
       },
       monthlyRevenue,
-      projectsByType: formattedProjectsByType
+      projectsByType: projectsTypeArray,
+      performance: {
+        profitMargin,
+        revenuePerClient,
+        projectSuccessRate,
+        paymentDelayTrend
+      }
     }
 
     return NextResponse.json(statistics)
+
   } catch (error) {
-    console.error('Erreur lors du calcul des statistiques:', error)
+    console.error("Erreur lors du calcul des statistiques:", error)
     return NextResponse.json(
-      { error: 'Erreur lors du calcul des statistiques' },
+      { 
+        message: "Erreur lors du calcul des statistiques",
+        error: error instanceof Error ? error.message : "Erreur inconnue" 
+      },
       { status: 500 }
     )
   }

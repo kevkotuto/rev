@@ -414,6 +414,10 @@ export default function ClientsPage() {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => window.location.href = `/clients/${client.id}`}>
+                      <Eye className="mr-2 h-4 w-4" />
+                      Voir détails
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => openEditDialog(client)}>
                       <Edit className="mr-2 h-4 w-4" />
                       Modifier

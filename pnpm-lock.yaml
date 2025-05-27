@@ -98,6 +98,9 @@ importers:
       jspdf:
         specifier: ^3.0.1
         version: 3.0.1
+      jspdf-autotable:
+        specifier: ^5.0.2
+        version: 5.0.2(jspdf@3.0.1)
       langchain:
         specifier: ^0.3.27
         version: 0.3.27(@langchain/core@0.3.57(openai@4.103.0(ws@8.18.2)(zod@3.25.28)))(openai@4.103.0(ws@8.18.2)(zod@3.25.28))(ws@8.18.2)
@@ -2476,6 +2479,11 @@ packages:
   jsonpointer@5.0.1:
     resolution: {integrity: sha512-p/nXbhSEcu3pZRdkW1OfJhpsVtW1gd4Wa1fnQc9YLiTfAjn0312eMKimbdIQzuZl9aa9xUGaRlP9T/CJE/ditQ==}
     engines: {node: '>=0.10.0'}
+
+  jspdf-autotable@5.0.2:
+    resolution: {integrity: sha512-YNKeB7qmx3pxOLcNeoqAv3qTS7KuvVwkFe5AduCawpop3NOkBUtqDToxNc225MlNecxT4kP2Zy3z/y/yvGdXUQ==}
+    peerDependencies:
+      jspdf: ^2 || ^3
 
   jspdf@3.0.1:
     resolution: {integrity: sha512-qaGIxqxetdoNnFQQXxTKUD9/Z7AloLaw94fFsOiJMxbfYdBbrBuhWmbzI8TVjrw7s3jBY1PFHofBKMV/wZPapg==}
@@ -6019,6 +6027,10 @@ snapshots:
       diff-match-patch: 1.0.5
 
   jsonpointer@5.0.1: {}
+
+  jspdf-autotable@5.0.2(jspdf@3.0.1):
+    dependencies:
+      jspdf: 3.0.1
 
   jspdf@3.0.1:
     dependencies:

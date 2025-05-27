@@ -23,7 +23,8 @@ import {
   ArrowRight,
   Send,
   Mail,
-  AlertCircle
+  AlertCircle,
+  FileText
 } from "lucide-react"
 import {
   Dialog,
@@ -249,6 +250,35 @@ export function ProformaManagement({ projectId, onProformaUpdated }: ProformaMan
   const openPartialConversionDialog = (proformaId: string) => {
     setSelectedProformaForConversion(proformaId)
     setIsPartialConversionOpen(true)
+  }
+
+  const handleFullConversion = async (proformaId: string) => {
+    if (!confirm('Êtes-vous sûr de vouloir convertir cette proforma en facture complète ?')) return
+
+    try {
+      const response = await fetch(`/api/invoices/${proformaId}/convert`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversionType: "FULL",
+          generatePaymentLink: false,
+          markAsPaid: false
+        })
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        toast.success(result.message || 'Proforma convertie en facture avec succès')
+        fetchStatus()
+        onProformaUpdated?.()
+      } else {
+        const error = await response.json()
+        toast.error(error.message || 'Erreur lors de la conversion')
+      }
+    } catch (error) {
+      console.error('Erreur:', error)
+      toast.error('Erreur lors de la conversion')
+    }
   }
 
   const handleSendEmail = (proformaId: string) => {
@@ -584,6 +614,10 @@ export function ProformaManagement({ projectId, onProformaUpdated }: ProformaMan
                         <DropdownMenuItem onClick={() => handleSendEmail(proforma.id)}>
                           <Send className="mr-2 h-4 w-4" />
                           Envoyer par email
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleFullConversion(proforma.id)}>
+                          <FileText className="mr-2 h-4 w-4" />
+                          Conversion complète
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => openPartialConversionDialog(proforma.id)}>
                           <ArrowRight className="mr-2 h-4 w-4" />

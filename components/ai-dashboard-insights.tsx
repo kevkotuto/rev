@@ -15,7 +15,8 @@ import {
   Target,
   BarChart3,
   Lightbulb,
-  Zap
+  Zap,
+  Play
 } from "lucide-react"
 import { motion } from "motion/react"
 import { toast } from "sonner"
@@ -52,29 +53,53 @@ interface RawData {
   alerts?: string[]
 }
 
-interface AIDashboardInsightsProps {
-  className?: string
+type DatePeriod = 'global' | '7d' | '30d' | '90d' | '1y' | 'custom'
+
+interface DateRange {
+  startDate: string
+  endDate: string
 }
 
-export function AIDashboardInsights({ className }: AIDashboardInsightsProps) {
+interface AIDashboardInsightsProps {
+  className?: string
+  selectedPeriod?: DatePeriod
+  customDateRange?: DateRange
+}
+
+export function AIDashboardInsights({ 
+  className, 
+  selectedPeriod = '30d',
+  customDateRange 
+}: AIDashboardInsightsProps) {
   const [insights, setInsights] = useState<AIInsight | null>(null)
   const [rawData, setRawData] = useState<RawData | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
-
-  useEffect(() => {
-    fetchInsights()
-  }, [])
+  const [hasInitialized, setHasInitialized] = useState(false)
 
   const fetchInsights = async () => {
     setLoading(true)
     try {
-      const response = await fetch('/api/ai/analyze')
+      const params = new URLSearchParams()
+      
+      if (selectedPeriod === 'custom' && customDateRange?.startDate && customDateRange?.endDate) {
+        params.append('startDate', customDateRange.startDate)
+        params.append('endDate', customDateRange.endDate)
+        params.append('period', 'custom')
+      } else if (selectedPeriod !== 'global') {
+        params.append('period', selectedPeriod)
+      }
+      
+      const url = `/api/ai/analyze${params.toString() ? `?${params.toString()}` : ''}`
+      const response = await fetch(url)
+      
       if (response.ok) {
         const data = await response.json()
         setInsights(data.analysis)
         setRawData(data.rawData)
         setLastUpdated(new Date(data.generatedAt))
+        setHasInitialized(true)
+        toast.success("Analyse IA mise à jour avec succès")
       } else {
         toast.error("Erreur lors du chargement des insights IA")
       }
@@ -102,6 +127,71 @@ export function AIDashboardInsights({ className }: AIDashboardInsightsProps) {
 
   const formatAmount = (amount: number) => {
     return new Intl.NumberFormat('fr-FR').format(amount) + ' XOF'
+  }
+
+  const getPeriodLabel = () => {
+    const periodLabels = {
+      'global': 'Toutes les données',
+      '7d': '7 derniers jours',
+      '30d': '30 derniers jours', 
+      '90d': '3 derniers mois',
+      '1y': '12 derniers mois',
+      'custom': 'Période personnalisée'
+    }
+    return periodLabels[selectedPeriod] || 'Période sélectionnée'
+  }
+
+  if (!hasInitialized) {
+    return (
+      <Card className={className}>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Brain className="h-5 w-5 text-purple-600" />
+              <div>
+                <CardTitle className="text-lg">Insights IA</CardTitle>
+                <CardDescription>
+                  Analyse intelligente générée par REV AI
+                </CardDescription>
+              </div>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-12">
+            <div className="mb-4">
+              <Play className="h-12 w-12 text-purple-500 mx-auto mb-3" />
+              <h3 className="text-lg font-semibold text-gray-800 mb-2">
+                Générer une analyse IA
+              </h3>
+              <p className="text-sm text-muted-foreground mb-1">
+                Obtenez des insights personnalisés sur votre activité
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Période : {getPeriodLabel()}
+              </p>
+            </div>
+            <Button 
+              onClick={fetchInsights} 
+              disabled={loading}
+              className="bg-purple-600 hover:bg-purple-700"
+            >
+              {loading ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  Génération en cours...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  Lancer l'analyse IA
+                </>
+              )}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
   }
 
   if (loading) {
@@ -173,15 +263,20 @@ export function AIDashboardInsights({ className }: AIDashboardInsightsProps) {
               </CardDescription>
             </div>
           </div>
-          <Button
-            onClick={fetchInsights}
-            variant="outline"
-            size="sm"
-            disabled={loading}
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            Actualiser
-          </Button>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="text-xs">
+              {getPeriodLabel()}
+            </Badge>
+            <Button
+              onClick={fetchInsights}
+              variant="outline"
+              size="sm"
+              disabled={loading}
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+              Actualiser
+            </Button>
+          </div>
         </div>
       </CardHeader>
 
@@ -343,7 +438,7 @@ export function AIDashboardInsights({ className }: AIDashboardInsightsProps) {
             <div className="text-lg font-bold text-blue-600">
               {formatAmount(rawData.financial.profit)}
             </div>
-            <p className="text-xs text-muted-foreground">Profit (30j)</p>
+            <p className="text-xs text-muted-foreground">Profit ({getPeriodLabel()})</p>
           </div>
         </motion.div>
 

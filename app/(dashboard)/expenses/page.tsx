@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { Checkbox } from "@/components/ui/checkbox"
 import { motion } from "motion/react"
 import { toast } from "sonner"
 
@@ -53,6 +54,11 @@ interface Expense {
   date: string
   notes?: string
   createdAt: string
+  isSubscription?: boolean
+  subscriptionPeriod?: string
+  nextRenewalDate?: string
+  reminderDays?: number
+  isActive?: boolean
   project?: {
     id: string
     name: string
@@ -77,7 +83,13 @@ const categories = [
 
 const types = [
   { value: 'GENERAL', label: 'Professionnel' },
-  { value: 'PROJECT', label: 'Projet' }
+  { value: 'PROJECT', label: 'Projet' },
+  { value: 'SUBSCRIPTION', label: 'Abonnement' }
+]
+
+const subscriptionPeriods = [
+  { value: 'MONTHLY', label: 'Mensuel' },
+  { value: 'YEARLY', label: 'Annuel' }
 ]
 
 export default function ExpensesPage() {
@@ -98,7 +110,11 @@ export default function ExpensesPage() {
     type: "GENERAL",
     date: new Date().toISOString().split('T')[0],
     notes: "",
-    projectId: ""
+    projectId: "",
+    isSubscription: false,
+    subscriptionPeriod: "MONTHLY",
+    nextRenewalDate: "",
+    reminderDays: 30
   })
 
   useEffect(() => {
@@ -138,7 +154,11 @@ export default function ExpensesPage() {
       const expenseData = {
         ...formData,
         amount: parseFloat(formData.amount) || 0,
-        projectId: formData.projectId === "none" ? null : formData.projectId || null
+        projectId: formData.projectId === "none" ? null : formData.projectId || null,
+        isSubscription: formData.type === "SUBSCRIPTION" ? formData.isSubscription : false,
+        subscriptionPeriod: formData.type === "SUBSCRIPTION" && formData.isSubscription ? formData.subscriptionPeriod : undefined,
+        nextRenewalDate: formData.type === "SUBSCRIPTION" && formData.isSubscription && formData.nextRenewalDate ? formData.nextRenewalDate : undefined,
+        reminderDays: formData.type === "SUBSCRIPTION" && formData.isSubscription ? formData.reminderDays : undefined
       }
 
       const response = await fetch('/api/expenses', {
@@ -219,7 +239,11 @@ export default function ExpensesPage() {
       type: "GENERAL",
       date: new Date().toISOString().split('T')[0],
       notes: "",
-      projectId: "none"
+      projectId: "none",
+      isSubscription: false,
+      subscriptionPeriod: "MONTHLY",
+      nextRenewalDate: "",
+      reminderDays: 30
     })
     setSelectedExpense(null)
   }
@@ -233,7 +257,11 @@ export default function ExpensesPage() {
       type: expense.type,
       date: expense.date.split('T')[0],
       notes: expense.notes || "",
-      projectId: expense.project?.id || "none"
+      projectId: expense.project?.id || "none",
+      isSubscription: expense.isSubscription || false,
+      subscriptionPeriod: expense.subscriptionPeriod || "MONTHLY",
+      nextRenewalDate: expense.nextRenewalDate ? expense.nextRenewalDate.split('T')[0] : "",
+      reminderDays: expense.reminderDays || 30
     })
     setIsEditDialogOpen(true)
   }
@@ -259,7 +287,8 @@ export default function ExpensesPage() {
   const getTypeBadge = (type: string) => {
     const typeMap = {
       'GENERAL': { label: 'Professionnel', variant: 'default' as const },
-      'PROJECT': { label: 'Projet', variant: 'secondary' as const }
+      'PROJECT': { label: 'Projet', variant: 'secondary' as const },
+      'SUBSCRIPTION': { label: 'Abonnement', variant: 'destructive' as const }
     }
     
     return typeMap[type as keyof typeof typeMap] || { label: type, variant: 'outline' as const }
@@ -410,6 +439,64 @@ export default function ExpensesPage() {
                   placeholder="Notes sur la dépense"
                 />
               </div>
+
+              {/* Champs pour les abonnements */}
+              {formData.type === "SUBSCRIPTION" && (
+                <div className="space-y-4 p-4 border rounded-lg bg-blue-50">
+                  <h4 className="font-medium text-blue-900">Configuration de l'abonnement</h4>
+                  
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="isSubscription"
+                      checked={formData.isSubscription}
+                      onCheckedChange={(checked) => setFormData({...formData, isSubscription: checked as boolean})}
+                    />
+                    <Label htmlFor="isSubscription">Activer les rappels automatiques</Label>
+                  </div>
+
+                  {formData.isSubscription && (
+                    <>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="grid gap-2">
+                          <Label htmlFor="subscriptionPeriod">Période</Label>
+                          <Select value={formData.subscriptionPeriod} onValueChange={(value) => setFormData({...formData, subscriptionPeriod: value})}>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {subscriptionPeriods.map((period) => (
+                                <SelectItem key={period.value} value={period.value}>
+                                  {period.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="grid gap-2">
+                          <Label htmlFor="reminderDays">Rappel (jours avant)</Label>
+                          <Input
+                            id="reminderDays"
+                            type="number"
+                            min="1"
+                            max="365"
+                            value={formData.reminderDays}
+                            onChange={(e) => setFormData({...formData, reminderDays: parseInt(e.target.value) || 30})}
+                          />
+                        </div>
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="nextRenewalDate">Prochaine échéance</Label>
+                        <Input
+                          id="nextRenewalDate"
+                          type="date"
+                          value={formData.nextRenewalDate}
+                          onChange={(e) => setFormData({...formData, nextRenewalDate: e.target.value})}
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
@@ -521,6 +608,16 @@ export default function ExpensesPage() {
                         {expense.project && (
                           <Badge variant="outline" className="text-xs">
                             {expense.project.name}
+                          </Badge>
+                        )}
+                        {expense.isSubscription && (
+                          <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-800">
+                            🔔 {expense.subscriptionPeriod === 'MONTHLY' ? 'Mensuel' : 'Annuel'}
+                          </Badge>
+                        )}
+                        {expense.isSubscription && expense.nextRenewalDate && (
+                          <Badge variant="outline" className="text-xs">
+                            📅 {new Date(expense.nextRenewalDate).toLocaleDateString('fr-FR')}
                           </Badge>
                         )}
                       </div>

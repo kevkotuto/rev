@@ -26,52 +26,23 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url)
     const unreadOnly = searchParams.get('unreadOnly') === 'true'
-    const type = searchParams.get('type')
-    const limit = parseInt(searchParams.get('limit') || '50')
-    const offset = parseInt(searchParams.get('offset') || '0')
 
-    const where: any = {
-      userId: session.user.id
-    }
-
-    if (unreadOnly) {
-      where.isRead = false
-    }
-
-    if (type) {
-      where.type = type
-    }
-
-    const [notifications, totalCount, unreadCount] = await Promise.all([
-      prisma.notification.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        take: limit,
-        skip: offset
-      }),
-      prisma.notification.count({ where }),
-      prisma.notification.count({
-        where: {
-          userId: session.user.id,
-          isRead: false
-        }
-      })
-    ])
-
-    return NextResponse.json({
-      notifications,
-      pagination: {
-        total: totalCount,
-        limit,
-        offset,
-        hasMore: totalCount > offset + limit
+    const notifications = await prisma.notification.findMany({
+      where: {
+        userId: session.user.id,
+        ...(unreadOnly && { isRead: false })
       },
-      unreadCount
+      orderBy: {
+        createdAt: 'desc'
+      },
+      take: 50 // Limiter à 50 notifications
     })
+
+    return NextResponse.json(notifications)
   } catch (error) {
-    console.error("Erreur récupération notifications:", error)
+    console.error("Erreur lors de la récupération des notifications:", error)
     return NextResponse.json(
-      { message: "Erreur lors de la récupération des notifications" },
+      { message: "Erreur interne du serveur" },
       { status: 500 }
     )
   }
@@ -90,29 +61,22 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const validatedData = notificationSchema.parse(body)
+    const { title, message, type, relatedType, relatedId } = body
 
     const notification = await prisma.notification.create({
       data: {
-        title: validatedData.title,
-        message: validatedData.message,
-        type: validatedData.type,
-        actionUrl: validatedData.actionUrl,
-        metadata: validatedData.metadata,
+        title,
+        message,
+        type: type || 'INFO',
+        relatedType,
+        relatedId,
         userId: session.user.id
       }
     })
 
     return NextResponse.json(notification, { status: 201 })
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { message: "Données invalides", errors: error.errors },
-        { status: 400 }
-      )
-    }
-
-    console.error("Erreur création notification:", error)
+    console.error("Erreur lors de la création de la notification:", error)
     return NextResponse.json(
       { message: "Erreur lors de la création de la notification" },
       { status: 500 }
@@ -120,8 +84,8 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PUT - Marquer des notifications comme lues
-export async function PUT(request: NextRequest) {
+// PATCH - Marquer une notification comme lue
+export async function PATCH(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     
@@ -132,58 +96,40 @@ export async function PUT(request: NextRequest) {
       )
     }
 
-    const { searchParams } = new URL(request.url)
-    const action = searchParams.get('action')
+    const body = await request.json()
+    const { notificationId, markAllAsRead } = body
 
-    if (action === 'markAllRead') {
+    if (markAllAsRead) {
       // Marquer toutes les notifications comme lues
-      const result = await prisma.notification.updateMany({
+      await prisma.notification.updateMany({
         where: {
           userId: session.user.id,
           isRead: false
         },
         data: {
-          isRead: true,
-          readAt: new Date()
+          isRead: true
         }
       })
-
-      return NextResponse.json({
-        message: `${result.count} notification(s) marquée(s) comme lue(s)`,
-        count: result.count
+      
+      return NextResponse.json({ message: "Toutes les notifications marquées comme lues" })
+    } else {
+      // Marquer une notification spécifique comme lue
+      const notification = await prisma.notification.update({
+        where: {
+          id: notificationId,
+          userId: session.user.id
+        },
+        data: {
+          isRead: true
+        }
       })
+      
+      return NextResponse.json(notification)
     }
-
-    const body = await request.json()
-    const { notificationIds } = body
-
-    if (!Array.isArray(notificationIds)) {
-      return NextResponse.json(
-        { message: "notificationIds doit être un tableau" },
-        { status: 400 }
-      )
-    }
-
-    // Marquer les notifications spécifiées comme lues
-    const result = await prisma.notification.updateMany({
-      where: {
-        id: { in: notificationIds },
-        userId: session.user.id
-      },
-      data: {
-        isRead: true,
-        readAt: new Date()
-      }
-    })
-
-    return NextResponse.json({
-      message: `${result.count} notification(s) marquée(s) comme lue(s)`,
-      count: result.count
-    })
   } catch (error) {
-    console.error("Erreur mise à jour notifications:", error)
+    console.error("Erreur lors de la mise à jour de la notification:", error)
     return NextResponse.json(
-      { message: "Erreur lors de la mise à jour des notifications" },
+      { message: "Erreur lors de la mise à jour de la notification" },
       { status: 500 }
     )
   }

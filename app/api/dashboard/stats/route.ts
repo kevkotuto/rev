@@ -15,6 +15,62 @@ export async function GET(request: NextRequest) {
     }
 
     const userId = session.user.id
+    
+    // Récupérer les paramètres de date
+    const { searchParams } = new URL(request.url)
+    const startDate = searchParams.get('startDate')
+    const endDate = searchParams.get('endDate')
+    
+    // Construire les filtres de date
+    const dateFilter: any = {}
+    if (startDate && endDate) {
+      dateFilter.createdAt = {
+        gte: new Date(startDate),
+        lte: new Date(endDate + 'T23:59:59.999Z') // Inclure toute la journée de fin
+      }
+    } else if (startDate) {
+      dateFilter.createdAt = {
+        gte: new Date(startDate)
+      }
+    } else if (endDate) {
+      dateFilter.createdAt = {
+        lte: new Date(endDate + 'T23:59:59.999Z')
+      }
+    }
+    
+    // Filtres spécifiques pour les factures (utilise paidDate pour les revenus)
+    const invoiceDateFilter: any = {}
+    if (startDate && endDate) {
+      invoiceDateFilter.paidDate = {
+        gte: new Date(startDate),
+        lte: new Date(endDate + 'T23:59:59.999Z')
+      }
+    } else if (startDate) {
+      invoiceDateFilter.paidDate = {
+        gte: new Date(startDate)
+      }
+    } else if (endDate) {
+      invoiceDateFilter.paidDate = {
+        lte: new Date(endDate + 'T23:59:59.999Z')
+      }
+    }
+    
+    // Filtres pour les dépenses (utilise date au lieu de createdAt)
+    const expenseDateFilter: any = {}
+    if (startDate && endDate) {
+      expenseDateFilter.date = {
+        gte: new Date(startDate),
+        lte: new Date(endDate + 'T23:59:59.999Z')
+      }
+    } else if (startDate) {
+      expenseDateFilter.date = {
+        gte: new Date(startDate)
+      }
+    } else if (endDate) {
+      expenseDateFilter.date = {
+        lte: new Date(endDate + 'T23:59:59.999Z')
+      }
+    }
 
     // Statistiques générales
     const [
@@ -90,7 +146,8 @@ export async function GET(request: NextRequest) {
       prisma.invoice.aggregate({
         where: {
           userId,
-          status: "PAID"
+          status: "PAID",
+          ...invoiceDateFilter
         },
         _sum: {
           amount: true
@@ -99,7 +156,10 @@ export async function GET(request: NextRequest) {
 
       // Total des dépenses
       prisma.expense.aggregate({
-        where: { userId },
+        where: { 
+          userId,
+          ...expenseDateFilter
+        },
         _sum: {
           amount: true
         }
@@ -123,7 +183,10 @@ export async function GET(request: NextRequest) {
       // Activités récentes (dernières factures et projets)
       prisma.$transaction([
         prisma.invoice.findMany({
-          where: { userId },
+          where: { 
+            userId,
+            ...dateFilter
+          },
           take: 5,
           orderBy: { createdAt: 'desc' },
           select: {
@@ -136,7 +199,10 @@ export async function GET(request: NextRequest) {
           }
         }),
         prisma.project.findMany({
-          where: { userId },
+          where: { 
+            userId,
+            ...dateFilter
+          },
           take: 5,
           orderBy: { updatedAt: 'desc' },
           select: {
@@ -155,7 +221,10 @@ export async function GET(request: NextRequest) {
 
       // Projets avec leurs dates pour analyse des délais
       prisma.project.findMany({
-        where: { userId },
+        where: { 
+          userId,
+          ...dateFilter
+        },
         select: {
           id: true,
           name: true,

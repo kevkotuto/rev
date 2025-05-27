@@ -11,10 +11,30 @@ import {
   Users, 
   Receipt,
   AlertCircle,
-  CheckCircle
+  CheckCircle,
+  Plus
 } from "lucide-react"
 import { motion } from "motion/react"
 import { toast } from "sonner"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 interface BudgetData {
   projectAmount: number
@@ -54,6 +74,14 @@ interface ProjectBudgetProps {
 export function ProjectBudget({ projectId }: ProjectBudgetProps) {
   const [budget, setBudget] = useState<BudgetData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [isExpenseDialogOpen, setIsExpenseDialogOpen] = useState(false)
+  const [expenseForm, setExpenseForm] = useState({
+    description: "",
+    amount: "",
+    category: "OTHER",
+    date: new Date().toISOString().split('T')[0],
+    notes: ""
+  })
 
   useEffect(() => {
     fetchBudget()
@@ -86,6 +114,38 @@ export function ProjectBudget({ projectId }: ProjectBudgetProps) {
 
   const formatDate = (date: string) => {
     return new Date(date).toLocaleDateString('fr-FR')
+  }
+
+  const handleCreateExpense = async () => {
+    try {
+      const response = await fetch(`/api/projects/${projectId}/expenses`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...expenseForm,
+          amount: parseFloat(expenseForm.amount)
+        })
+      })
+
+      if (response.ok) {
+        toast.success('Dépense créée avec succès')
+        setIsExpenseDialogOpen(false)
+        setExpenseForm({
+          description: "",
+          amount: "",
+          category: "OTHER",
+          date: new Date().toISOString().split('T')[0],
+          notes: ""
+        })
+        fetchBudget() // Recharger le budget pour voir la nouvelle dépense
+      } else {
+        const error = await response.json()
+        toast.error(error.message || 'Erreur lors de la création de la dépense')
+      }
+    } catch (error) {
+      console.error('Erreur:', error)
+      toast.error('Erreur lors de la création de la dépense')
+    }
   }
 
   if (loading) {
@@ -268,10 +328,22 @@ export function ProjectBudget({ projectId }: ProjectBudgetProps) {
         {/* Dépenses */}
         <Card>
           <CardHeader>
-            <CardTitle>Dépenses du projet</CardTitle>
-            <CardDescription>
-              Autres dépenses liées au projet
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Dépenses du projet</CardTitle>
+                <CardDescription>
+                  Autres dépenses liées au projet
+                </CardDescription>
+              </div>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => setIsExpenseDialogOpen(true)}
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Dépense rapide
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
@@ -342,6 +414,83 @@ export function ProjectBudget({ projectId }: ProjectBudgetProps) {
           </div>
         </CardContent>
       </Card>
+
+      {/* Dialog de dépense rapide */}
+      <Dialog open={isExpenseDialogOpen} onOpenChange={setIsExpenseDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Ajouter une dépense rapide</DialogTitle>
+            <DialogDescription>
+              Enregistrez rapidement une dépense pour ce projet
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="expense-description">Description</Label>
+              <Input
+                id="expense-description"
+                value={expenseForm.description}
+                onChange={(e) => setExpenseForm({ ...expenseForm, description: e.target.value })}
+                placeholder="Ex: Hébergement mensuel, abonnement..."
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="expense-amount">Montant (XOF)</Label>
+                <Input
+                  id="expense-amount"
+                  type="number"
+                  value={expenseForm.amount}
+                  onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })}
+                  placeholder="0"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="expense-date">Date</Label>
+                <Input
+                  id="expense-date"
+                  type="date"
+                  value={expenseForm.date}
+                  onChange={(e) => setExpenseForm({ ...expenseForm, date: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="expense-category">Catégorie</Label>
+              <Select value={expenseForm.category} onValueChange={(value) => setExpenseForm({ ...expenseForm, category: value })}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="HOSTING">Hébergement</SelectItem>
+                  <SelectItem value="SOFTWARE">Logiciels</SelectItem>
+                  <SelectItem value="SUBSCRIPTION">Abonnements</SelectItem>
+                  <SelectItem value="DOMAIN">Nom de domaine</SelectItem>
+                  <SelectItem value="EQUIPMENT">Équipement</SelectItem>
+                  <SelectItem value="OTHER">Autre</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="expense-notes">Notes (optionnel)</Label>
+              <Textarea
+                id="expense-notes"
+                value={expenseForm.notes}
+                onChange={(e) => setExpenseForm({ ...expenseForm, notes: e.target.value })}
+                placeholder="Notes sur cette dépense..."
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsExpenseDialogOpen(false)}>
+              Annuler
+            </Button>
+            <Button onClick={handleCreateExpense} disabled={!expenseForm.description || !expenseForm.amount}>
+              Créer la dépense
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 } 

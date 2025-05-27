@@ -20,12 +20,15 @@ import {
   ArrowRight,
   CheckCircle,
   Eye,
-  Download
+  Download,
+  RotateCcw,
+  RefreshCw
 } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -46,8 +49,11 @@ import {
 } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { Checkbox } from "@/components/ui/checkbox"
 import { motion } from "motion/react"
 import { toast } from "sonner"
+import { formatCurrency } from "@/lib/format"
+import { PartialInvoiceConversion } from "@/components/partial-invoice-conversion"
 
 interface Proforma {
   id: string
@@ -56,6 +62,7 @@ interface Proforma {
   amount: number
   status: string
   dueDate?: string
+  paymentLink?: string
   notes?: string
   clientName?: string
   clientEmail?: string
@@ -85,7 +92,11 @@ export default function ProformasPage() {
   const [statusFilter, setStatusFilter] = useState("all")
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [isConvertDialogOpen, setIsConvertDialogOpen] = useState(false)
+  const [isPartialConvertDialogOpen, setIsPartialConvertDialogOpen] = useState(false)
   const [selectedProforma, setSelectedProforma] = useState<Proforma | null>(null)
+  const [convertingProforma, setConvertingProforma] = useState<Proforma | null>(null)
+  const [partialConvertingProforma, setPartialConvertingProforma] = useState<Proforma | null>(null)
   const [formData, setFormData] = useState({
     amount: "",
     dueDate: "",
@@ -95,6 +106,13 @@ export default function ProformasPage() {
     clientEmail: "",
     clientAddress: "",
     clientPhone: ""
+  })
+
+  const [convertForm, setConvertForm] = useState({
+    generatePaymentLink: false,
+    paymentMethod: "CASH" as "WAVE" | "CASH" | "BANK_TRANSFER",
+    markAsPaid: false,
+    paidDate: new Date().toISOString().split('T')[0] // Date d'aujourd'hui par défaut
   })
 
   useEffect(() => {
@@ -213,23 +231,76 @@ export default function ProformasPage() {
     }
   }
 
-  const handleConvertToInvoice = async (proformaId: string) => {
-    if (!confirm('Êtes-vous sûr de vouloir convertir ce proforma en facture ?')) return
+  const handleConvertToInvoice = async (proforma: Proforma) => {
+    setConvertingProforma(proforma)
+    setIsConvertDialogOpen(true)
+  }
+
+  const handleConfirmConversion = async () => {
+    if (!convertingProforma) return
 
     try {
-      const response = await fetch(`/api/invoices/${proformaId}/convert`, {
-        method: 'POST'
+      const response = await fetch(`/api/invoices/${convertingProforma.id}/convert`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          generatePaymentLink: convertForm.generatePaymentLink,
+          paymentMethod: convertForm.paymentMethod,
+          markAsPaid: convertForm.markAsPaid,
+          paidDate: convertForm.markAsPaid ? convertForm.paidDate : undefined
+        })
       })
 
       if (response.ok) {
-        toast.success('Proforma converti en facture avec succès')
+        const result = await response.json()
+        toast.success(result.message || 'Proforma converti en facture avec succès')
+        setIsConvertDialogOpen(false)
+        setConvertingProforma(null)
         fetchProformas()
+        
+        if (result.paymentLink) {
+          window.open(result.paymentLink, '_blank')
+        }
       } else {
-        toast.error('Erreur lors de la conversion')
+        const error = await response.json()
+        toast.error(error.message || 'Erreur lors de la conversion')
       }
     } catch (error) {
       console.error('Erreur:', error)
       toast.error('Erreur lors de la conversion')
+    }
+  }
+
+  const handlePartialConvert = (proforma: Proforma) => {
+    setPartialConvertingProforma(proforma)
+    setIsPartialConvertDialogOpen(true)
+  }
+
+  const handleRegeneratePaymentLink = async (proformaId: string) => {
+    if (!confirm('Êtes-vous sûr de vouloir régénérer le lien de paiement pour cette proforma convertie ?')) return
+
+    try {
+      const response = await fetch(`/api/invoices/${proformaId}/payment-link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ regenerate: true })
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        toast.success('Lien de paiement régénéré avec succès')
+        fetchProformas()
+        
+        if (result.paymentLink) {
+          window.open(result.paymentLink, '_blank')
+        }
+      } else {
+        const error = await response.json()
+        toast.error(error.message || 'Erreur lors de la régénération du lien')
+      }
+    } catch (error) {
+      console.error('Erreur:', error)
+      toast.error('Erreur lors de la régénération du lien')
     }
   }
 
@@ -265,9 +336,8 @@ export default function ProformasPage() {
   const getStatusBadge = (status: string) => {
     const statusConfig = {
       PENDING: { label: "En attente", variant: "secondary" as const },
-      PAID: { label: "Payé", variant: "default" as const },
-      OVERDUE: { label: "En retard", variant: "destructive" as const },
-      CANCELLED: { label: "Annulé", variant: "outline" as const }
+      CONVERTED: { label: "Convertie", variant: "default" as const },
+      CANCELLED: { label: "Annulée", variant: "outline" as const }
     }
     return statusConfig[status as keyof typeof statusConfig] || { label: status, variant: "secondary" as const }
   }
@@ -437,9 +507,8 @@ export default function ProformasPage() {
           <SelectContent>
             <SelectItem value="all">Tous les statuts</SelectItem>
             <SelectItem value="PENDING">En attente</SelectItem>
-            <SelectItem value="PAID">Payé</SelectItem>
-            <SelectItem value="OVERDUE">En retard</SelectItem>
-            <SelectItem value="CANCELLED">Annulé</SelectItem>
+            <SelectItem value="CONVERTED">Convertie</SelectItem>
+            <SelectItem value="CANCELLED">Annulée</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -497,10 +566,23 @@ export default function ProformasPage() {
                           <Edit className="mr-2 h-4 w-4" />
                           Modifier
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleConvertToInvoice(proforma.id)}>
+                        <DropdownMenuItem onClick={() => handleConvertToInvoice(proforma)}>
                           <ArrowRight className="mr-2 h-4 w-4" />
                           Convertir en facture
                         </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handlePartialConvert(proforma)}>
+                          <RotateCcw className="mr-2 h-4 w-4" />
+                          Conversion partielle
+                        </DropdownMenuItem>
+                        
+                        {proforma.status === 'CONVERTED' && proforma.paymentLink && (
+                          <DropdownMenuItem onClick={() => handleRegeneratePaymentLink(proforma.id)}>
+                            <RefreshCw className="mr-2 h-4 w-4" />
+                            Régénérer lien Wave
+                          </DropdownMenuItem>
+                        )}
+                        
+                        <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={() => handleDeleteProforma(proforma.id)}>
                           <Trash2 className="mr-2 h-4 w-4" />
                           Supprimer
@@ -631,6 +713,117 @@ export default function ProformasPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Dialog de conversion */}
+      <Dialog open={isConvertDialogOpen} onOpenChange={setIsConvertDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Convertir en facture</DialogTitle>
+            <DialogDescription>
+              Convertir le proforma {convertingProforma?.invoiceNumber} en facture
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-4">
+            <div className="space-y-4">
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="markAsPaid"
+                  checked={convertForm.markAsPaid}
+                  onCheckedChange={(checked) => 
+                    setConvertForm({...convertForm, markAsPaid: checked as boolean})
+                  }
+                />
+                <Label htmlFor="markAsPaid">
+                  Marquer comme payée immédiatement
+                </Label>
+              </div>
+
+              {convertForm.markAsPaid && (
+                <div className="grid gap-2">
+                  <Label htmlFor="paidDate">Date de paiement</Label>
+                  <Input
+                    id="paidDate"
+                    type="date"
+                    value={convertForm.paidDate}
+                    onChange={(e) => 
+                      setConvertForm({...convertForm, paidDate: e.target.value})
+                    }
+                  />
+                </div>
+              )}
+
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="generatePaymentLink"
+                  checked={convertForm.generatePaymentLink}
+                  onCheckedChange={(checked) => 
+                    setConvertForm({...convertForm, generatePaymentLink: checked as boolean})
+                  }
+                />
+                <Label htmlFor="generatePaymentLink">
+                  Générer un lien de paiement Wave
+                </Label>
+              </div>
+
+              {convertForm.generatePaymentLink && (
+                <div className="grid gap-2">
+                  <Label htmlFor="paymentMethod">Méthode de paiement</Label>
+                  <Select 
+                    value={convertForm.paymentMethod} 
+                    onValueChange={(value: "WAVE" | "CASH" | "BANK_TRANSFER") => 
+                      setConvertForm({...convertForm, paymentMethod: value})
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="WAVE">Wave</SelectItem>
+                      <SelectItem value="CASH">Espèces</SelectItem>
+                      <SelectItem value="BANK_TRANSFER">Virement bancaire</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              <div className="bg-muted p-4 rounded-lg">
+                <p className="text-sm">
+                  <strong>Montant:</strong> {convertingProforma && formatCurrency(convertingProforma.amount)}
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Une nouvelle facture sera créée avec ce montant et le proforma sera marqué comme "Convertie".
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsConvertDialogOpen(false)}>
+              Annuler
+            </Button>
+            <Button onClick={handleConfirmConversion}>
+              <CheckCircle className="mr-2 h-4 w-4" />
+              Convertir en facture
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog de conversion partielle */}
+      {partialConvertingProforma && (
+        <PartialInvoiceConversion
+          proformaId={partialConvertingProforma.id}
+          isOpen={isPartialConvertDialogOpen}
+          onClose={() => {
+            setIsPartialConvertDialogOpen(false)
+            setPartialConvertingProforma(null)
+          }}
+          onSuccess={() => {
+            fetchProformas()
+          }}
+        />
+      )}
     </div>
   )
 } 

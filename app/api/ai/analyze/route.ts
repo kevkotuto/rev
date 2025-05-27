@@ -47,6 +47,65 @@ Style : Professionnel, concis, français ivoirien, emojis stratégiques.
 Format : JSON avec les sections ci-dessus.
 `)
 
+// Fonction pour calculer les dates en fonction de la période
+const getDateRangeForPeriod = (period: string, startDate?: string, endDate?: string): { startDate?: Date, endDate?: Date } => {
+  const now = new Date()
+  
+  if (period === 'custom' && startDate && endDate) {
+    return { 
+      startDate: new Date(startDate), 
+      endDate: new Date(endDate) 
+    }
+  }
+  
+  switch (period) {
+    case 'global':
+      return {}
+    case '7d':
+      return { 
+        startDate: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000), 
+        endDate: now 
+      }
+    case '30d':
+      return { 
+        startDate: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000), 
+        endDate: now 
+      }
+    case '90d':
+      return { 
+        startDate: new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000), 
+        endDate: now 
+      }
+    case '1y':
+      return { 
+        startDate: new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000), 
+        endDate: now 
+      }
+    default:
+      // Par défaut, 30 jours
+      return { 
+        startDate: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000), 
+        endDate: now 
+      }
+  }
+}
+
+const getPeriodLabel = (period: string, startDate?: string, endDate?: string): string => {
+  if (period === 'custom' && startDate && endDate) {
+    return `${startDate} → ${endDate}`
+  }
+  
+  const periodLabels: { [key: string]: string } = {
+    'global': 'Toutes les données',
+    '7d': '7 derniers jours',
+    '30d': '30 derniers jours',
+    '90d': '3 derniers mois',
+    '1y': '12 derniers mois'
+  }
+  
+  return periodLabels[period] || '30 derniers jours'
+}
+
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -59,8 +118,25 @@ export async function GET(request: NextRequest) {
     }
 
     const userId = session.user.id
+    
+    // Récupération des paramètres de période
+    const { searchParams } = new URL(request.url)
+    const period = searchParams.get('period') || '30d'
+    const startDateParam = searchParams.get('startDate')
+    const endDateParam = searchParams.get('endDate')
+    
+    const { startDate, endDate } = getDateRangeForPeriod(period, startDateParam || undefined, endDateParam || undefined)
+    const periodLabel = getPeriodLabel(period, startDateParam || undefined, endDateParam || undefined)
 
-    // Récupération des données business complètes
+    // Construction des filtres pour les requêtes
+    const dateFilter = startDate && endDate ? {
+      createdAt: {
+        gte: startDate,
+        lte: endDate
+      }
+    } : {}
+
+    // Récupération des données business complètes avec filtres de période
     const [user, clients, projects, tasks, invoices, expenses, timeEntries] = await Promise.all([
       prisma.user.findUnique({
         where: { id: userId },
@@ -69,12 +145,18 @@ export async function GET(request: NextRequest) {
       prisma.client.findMany({
         where: { userId },
         include: {
-          projects: { select: { amount: true, status: true } },
+          projects: { 
+            select: { amount: true, status: true },
+            where: startDate && endDate ? { createdAt: dateFilter.createdAt } : {}
+          },
           _count: { select: { projects: true } }
         }
       }),
       prisma.project.findMany({
-        where: { userId },
+        where: { 
+          userId,
+          ...(startDate && endDate ? dateFilter : {})
+        },
         include: {
           client: { select: { name: true } },
           _count: { select: { tasks: true } }
@@ -82,16 +164,25 @@ export async function GET(request: NextRequest) {
         orderBy: { updatedAt: 'desc' }
       }),
       prisma.task.findMany({
-        where: { userId },
+        where: { 
+          userId,
+          ...(startDate && endDate ? dateFilter : {})
+        },
         include: { project: { select: { name: true } } },
         orderBy: { createdAt: 'desc' }
       }),
       prisma.invoice.findMany({
-        where: { userId },
+        where: { 
+          userId,
+          ...(startDate && endDate ? dateFilter : {})
+        },
         orderBy: { createdAt: 'desc' }
       }),
       prisma.expense.findMany({
-        where: { userId },
+        where: { 
+          userId,
+          ...(startDate && endDate ? dateFilter : {})
+        },
         orderBy: { createdAt: 'desc' }
       }),
       // Note: timeEntries n'existe pas encore dans le schéma, on simule
@@ -100,21 +191,40 @@ export async function GET(request: NextRequest) {
 
     // Calcul des métriques avancées
     const now = new Date()
-    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-    const lastMonth = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000)
-
-    const recentInvoices = invoices.filter(i => i.createdAt >= thirtyDaysAgo)
-    const previousInvoices = invoices.filter(i => i.createdAt >= lastMonth && i.createdAt < thirtyDaysAgo)
+    const analysisStartDate = startDate || new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+    const analysisEndDate = endDate || now
     
-    const recentExpenses = expenses.filter(e => e.createdAt >= thirtyDaysAgo)
-    const previousExpenses = expenses.filter(e => e.createdAt >= lastMonth && e.createdAt < thirtyDaysAgo)
+    // Pour la comparaison, on prend la même durée avant la période d'analyse
+    const periodDuration = analysisEndDate.getTime() - analysisStartDate.getTime()
+    const previousPeriodStart = new Date(analysisStartDate.getTime() - periodDuration)
+    const previousPeriodEnd = analysisStartDate
+
+    const previousInvoices = await prisma.invoice.findMany({
+      where: { 
+        userId,
+        createdAt: {
+          gte: previousPeriodStart,
+          lte: previousPeriodEnd
+        }
+      }
+    })
+    
+    const previousExpenses = await prisma.expense.findMany({
+      where: { 
+        userId,
+        createdAt: {
+          gte: previousPeriodStart,
+          lte: previousPeriodEnd
+        }
+      }
+    })
 
     // Analyse financière
-    const currentRevenue = recentInvoices.filter(i => i.status === 'PAID').reduce((sum, i) => sum + i.amount, 0)
+    const currentRevenue = invoices.filter(i => i.status === 'PAID').reduce((sum, i) => sum + i.amount, 0)
     const previousRevenue = previousInvoices.filter(i => i.status === 'PAID').reduce((sum, i) => sum + i.amount, 0)
     const revenueGrowth = previousRevenue > 0 ? ((currentRevenue - previousRevenue) / previousRevenue) * 100 : 0
 
-    const currentExpenses = recentExpenses.reduce((sum, e) => sum + e.amount, 0)
+    const currentExpenses = expenses.reduce((sum, e) => sum + e.amount, 0)
     const previousExpenseSum = previousExpenses.reduce((sum, e) => sum + e.amount, 0)
 
     // Analyse des projets
@@ -139,7 +249,7 @@ export async function GET(request: NextRequest) {
       .slice(0, 3)
 
     const businessData = {
-      period: "30 derniers jours",
+      period: periodLabel,
       financial: {
         currentRevenue,
         previousRevenue,
@@ -176,7 +286,7 @@ export async function GET(request: NextRequest) {
     const analysis = await llm.invoke(
       await analysisPrompt.format({
         businessData: JSON.stringify(businessData, null, 2),
-        period: "30 derniers jours"
+        period: periodLabel
       })
     )
 
@@ -192,10 +302,10 @@ export async function GET(request: NextRequest) {
     } catch (error) {
       // Fallback avec structure manuelle
       parsedAnalysis = {
-        resumeExecutif: "Analyse générée avec succès. Consultez les données détaillées ci-dessous.",
+        resumeExecutif: `Analyse générée pour la période ${periodLabel}. ${projects.length} projets gérés avec un chiffre d'affaires de ${currentRevenue.toLocaleString()} XOF.`,
         insightsStrategiques: [
           `📊 ${projects.length} projets gérés avec ${Math.round(taskCompletionRate)}% de tâches complétées`,
-          `💰 Chiffre d'affaires : ${currentRevenue.toLocaleString()} XOF sur 30 jours`,
+          `💰 Chiffre d'affaires : ${currentRevenue.toLocaleString()} XOF sur la période`,
           `⚠️ ${overdueTasks.length} tâche(s) en retard nécessitent une attention`,
           `🎯 ${urgentTasks.length} tâche(s) urgente(s) en cours`
         ],

@@ -70,6 +70,7 @@ export const invoiceSchema = z.object({
   type: z.enum(["PROFORMA", "INVOICE"]),
   amount: z.number().min(0, "Le montant doit être positif"),
   dueDate: z.string().optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
+  paidDate: z.string().optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
   projectId: z.string().optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
   notes: z.string().optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
   clientName: z.string().optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
@@ -86,8 +87,13 @@ export const expenseSchema = z.object({
   category: z.string().optional(),
   date: z.string().transform((str) => new Date(str)),
   notes: z.string().optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
-  type: z.enum(["GENERAL", "PROJECT"]),
-  projectId: z.string().optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
+  type: z.enum(["GENERAL", "PROJECT", "SUBSCRIPTION"]),
+  projectId: z.string().nullable().optional().or(z.literal("")).transform(val => val === "" || val === null ? null : val),
+  // Champs pour les abonnements
+  isSubscription: z.boolean().optional().default(false),
+  subscriptionPeriod: z.enum(["MONTHLY", "YEARLY"]).optional(),
+  nextRenewalDate: z.string().optional().transform(val => val ? new Date(val) : undefined),
+  reminderDays: z.number().min(1).max(365).optional().default(30),
 })
 
 // User profile schemas

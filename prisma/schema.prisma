@@ -80,6 +80,8 @@ model User {
   companySettings CompanySettings?
   emails        Email[]
   emailTemplates EmailTemplate[]
+  notifications Notification[]
+  providerPayments ProviderPayment[]
   
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -176,12 +178,16 @@ model Provider {
   bankAccount String?
   bankIban    String?
   
+  // Wave CI Recipient ID pour les paiements B2B
+  waveRecipientId String?
+  
   userId      String
   user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   // Relations avec les projets via ProjectProvider
   projectProviders ProjectProvider[]
   files       File[]
+  payments    ProviderPayment[] // Historique des paiements
   
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
@@ -201,10 +207,36 @@ model ProjectProvider {
   providerId  String
   provider    Provider  @relation(fields: [providerId], references: [id], onDelete: Cascade)
   
+  // Relation avec les paiements
+  payments    ProviderPayment[]
+  
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   
   @@unique([projectId, providerId])
+}
+
+model ProviderPayment {
+  id               String    @id @default(cuid())
+  amount           Float     // Montant du paiement
+  fees             Float     @default(0) // Frais de transaction
+  paymentMethod    String    @default("WAVE") // WAVE, CASH, BANK_TRANSFER
+  status           String    @default("PENDING") // PENDING, COMPLETED, FAILED
+  wavePayoutId     String?   // ID du payout Wave B2B
+  notes            String?
+  paidAt           DateTime?
+  
+  providerId       String
+  provider         Provider  @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  
+  projectProviderId String? // Si lié à un projet spécifique
+  projectProvider   ProjectProvider? @relation(fields: [projectProviderId], references: [id])
+  
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 }
 
 model Invoice {
@@ -271,6 +303,13 @@ model Expense {
   notes       String?
   type        ExpenseType @default(GENERAL)
   
+  // Champs pour les abonnements
+  isSubscription Boolean @default(false)
+  subscriptionPeriod SubscriptionPeriod?
+  nextRenewalDate DateTime?
+  reminderDays Int? @default(30)
+  isActive Boolean @default(true) // Pour désactiver les abonnements expirés
+  
   projectId   String?
   project     Project?    @relation(fields: [projectId], references: [id])
   
@@ -306,11 +345,18 @@ enum InvoiceStatus {
   PAID
   OVERDUE
   CANCELLED
+  CONVERTED
 }
 
 enum ExpenseType {
   GENERAL
   PROJECT
+  SUBSCRIPTION
+}
+
+enum SubscriptionPeriod {
+  MONTHLY
+  YEARLY
 }
 
 model Task {
@@ -461,4 +507,28 @@ enum FileCategory {
   INVOICE
   RECEIPT
   OTHER
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  title       String
+  message     String
+  type        NotificationType @default(INFO)
+  isRead      Boolean  @default(false)
+  relatedType String?  // "expense", "invoice", etc.
+  relatedId   String?  // ID de l'objet lié
+  
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+enum NotificationType {
+  INFO
+  WARNING
+  SUCCESS
+  ERROR
+  SUBSCRIPTION_REMINDER
 }

@@ -31,7 +31,9 @@ import {
   X,
   MoreHorizontal,
   Copy,
-  RefreshCw
+  RefreshCw,
+  Link,
+  CreditCard
 } from "lucide-react"
 import { toast } from "sonner"
 import { formatCurrency, formatDate } from "@/lib/format"
@@ -69,6 +71,7 @@ interface InvoiceFormData {
   type: "INVOICE" | "PROFORMA"
   amount: number
   dueDate?: string
+  paidDate?: string
   notes?: string
   clientName?: string
   clientEmail?: string
@@ -89,9 +92,19 @@ interface Project {
   }
 }
 
+interface Client {
+  id: string
+  name: string
+  email?: string
+  phone?: string
+  address?: string
+  company?: string
+}
+
 export default function InvoicesPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [projects, setProjects] = useState<Project[]>([])
+  const [clients, setClients] = useState<Client[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
@@ -122,6 +135,7 @@ export default function InvoicesPage() {
   useEffect(() => {
     fetchInvoices()
     fetchProjects()
+    fetchClients()
   }, [])
 
   useEffect(() => {
@@ -154,6 +168,18 @@ export default function InvoicesPage() {
       }
     } catch (error) {
       console.error('Erreur lors du chargement des projets:', error)
+    }
+  }
+
+  const fetchClients = async () => {
+    try {
+      const response = await fetch('/api/clients')
+      if (response.ok) {
+        const data = await response.json()
+        setClients(data)
+      }
+    } catch (error) {
+      console.error('Erreur lors du chargement des clients:', error)
     }
   }
 
@@ -253,6 +279,94 @@ export default function InvoicesPage() {
     }
   }
 
+  const handleMarkAsPaid = async (invoiceId: string) => {
+    try {
+      const response = await fetch(`/api/invoices/${invoiceId}/mark-paid`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          paymentMethod: 'CASH',
+          paidDate: new Date().toISOString().split('T')[0]
+        })
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        toast.success(result.message)
+        fetchInvoices()
+      } else {
+        const error = await response.json()
+        toast.error(error.message || 'Erreur lors du marquage comme payée')
+      }
+    } catch (error) {
+      console.error('Erreur:', error)
+      toast.error('Erreur lors du marquage comme payée')
+    }
+  }
+
+  const handleGeneratePaymentLink = async (invoiceId: string) => {
+    try {
+      const response = await fetch(`/api/invoices/${invoiceId}/payment-link`, {
+        method: 'POST'
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        toast.success(result.message)
+        fetchInvoices()
+        
+        // Ouvrir le lien de paiement généré
+        if (result.paymentLink) {
+          window.open(result.paymentLink, '_blank')
+        }
+      } else {
+        const error = await response.json()
+        toast.error(error.message || 'Erreur lors de la génération du lien de paiement')
+      }
+    } catch (error) {
+      console.error('Erreur:', error)
+      toast.error('Erreur lors de la génération du lien de paiement')
+    }
+  }
+
+  const handleRegeneratePaymentLink = async (invoiceId: string) => {
+    if (!confirm('Êtes-vous sûr de vouloir régénérer le lien de paiement ? L\'ancien lien ne fonctionnera plus.')) return
+
+    try {
+      const response = await fetch(`/api/invoices/${invoiceId}/payment-link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ regenerate: true })
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        toast.success('Lien de paiement régénéré avec succès')
+        fetchInvoices()
+        
+        // Optionnel: ouvrir le nouveau lien
+        if (result.paymentLink) {
+          window.open(result.paymentLink, '_blank')
+        }
+      } else {
+        const error = await response.json()
+        toast.error(error.message || 'Erreur lors de la régénération du lien')
+      }
+    } catch (error) {
+      console.error('Erreur:', error)
+      toast.error('Erreur lors de la régénération du lien')
+    }
+  }
+
+  const copyPaymentLink = async (paymentLink: string) => {
+    try {
+      await navigator.clipboard.writeText(paymentLink)
+      toast.success('Lien de paiement copié dans le presse-papiers')
+    } catch (error) {
+      toast.error('Erreur lors de la copie du lien')
+    }
+  }
+
   const handleSendEmail = (invoice: Invoice) => {
     setEmailInvoiceId(invoice.id)
     setEmailInvoiceType(invoice.type)
@@ -293,6 +407,7 @@ export default function InvoicesPage() {
       type: invoice.type,
       amount: invoice.amount,
       dueDate: invoice.dueDate ? new Date(invoice.dueDate).toISOString().split('T')[0] : undefined,
+      paidDate: invoice.paidDate ? new Date(invoice.paidDate).toISOString().split('T')[0] : undefined,
       notes: invoice.notes || "",
       clientName: invoice.clientName || "",
       clientEmail: invoice.clientEmail || "",
@@ -309,14 +424,16 @@ export default function InvoicesPage() {
       PAID: "default",
       PENDING: "secondary", 
       OVERDUE: "destructive",
-      CANCELLED: "outline"
+      CANCELLED: "outline",
+      CONVERTED: "default"
     } as const
 
     const labels = {
       PAID: "Payé",
       PENDING: "En attente",
       OVERDUE: "En retard", 
-      CANCELLED: "Annulé"
+      CANCELLED: "Annulé",
+      CONVERTED: "Convertie"
     }
 
     return (
@@ -466,6 +583,7 @@ export default function InvoicesPage() {
                 <SelectItem value="PAID">Payé</SelectItem>
                 <SelectItem value="OVERDUE">En retard</SelectItem>
                 <SelectItem value="CANCELLED">Annulé</SelectItem>
+                <SelectItem value="CONVERTED">Convertie</SelectItem>
               </SelectContent>
             </Select>
 
@@ -523,6 +641,12 @@ export default function InvoicesPage() {
                       <div className="flex items-center space-x-2">
                         <h3 className="font-semibold">{invoice.invoiceNumber}</h3>
                         {getStatusBadge(invoice.status)}
+                        {invoice.paymentLink && (
+                          <div className="flex items-center text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                            <CreditCard className="h-3 w-3 mr-1" />
+                            Wave
+                          </div>
+                        )}
                       </div>
                       <div className="text-sm text-muted-foreground">
                         {invoice.clientName || invoice.project?.client?.name || 'Client non défini'}
@@ -554,6 +678,13 @@ export default function InvoicesPage() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => window.location.href = `/invoices/${invoice.id}`}>
+                          <Eye className="mr-2 h-4 w-4" />
+                          Voir détails
+                        </DropdownMenuItem>
+                        
+                        <DropdownMenuSeparator />
+                        
                         <DropdownMenuItem onClick={() => handleSendEmail(invoice)}>
                           <Mail className="mr-2 h-4 w-4" />
                           Envoyer par email
@@ -562,13 +693,45 @@ export default function InvoicesPage() {
                           <Download className="mr-2 h-4 w-4" />
                           Télécharger PDF
                         </DropdownMenuItem>
-                        {invoice.paymentLink && (
-                          <DropdownMenuItem onClick={() => window.open(invoice.paymentLink, '_blank')}>
-                            <ExternalLink className="mr-2 h-4 w-4" />
-                            Lien de paiement
+
+                        <DropdownMenuSeparator />
+
+                        {invoice.status !== 'PAID' && invoice.type === 'INVOICE' && (
+                          <DropdownMenuItem onClick={() => handleMarkAsPaid(invoice.id)}>
+                            <CheckCircle className="mr-2 h-4 w-4" />
+                            Marquer comme payée
                           </DropdownMenuItem>
                         )}
+
+                        {invoice.type === 'INVOICE' && invoice.status !== 'PAID' && (
+                          <DropdownMenuItem onClick={() => handleGeneratePaymentLink(invoice.id)}>
+                            <Link className="mr-2 h-4 w-4" />
+                            {invoice.paymentLink ? 'Regénérer lien Wave' : 'Générer lien Wave'}
+                          </DropdownMenuItem>
+                        )}
+
+                        {invoice.paymentLink && (
+                          <DropdownMenuItem onClick={() => handleRegeneratePaymentLink(invoice.id)}>
+                            <RefreshCw className="mr-2 h-4 w-4" />
+                            Nouveau lien Wave
+                          </DropdownMenuItem>
+                        )}
+
+                        {invoice.paymentLink && (
+                          <>
+                            <DropdownMenuItem onClick={() => window.open(invoice.paymentLink, '_blank')}>
+                              <ExternalLink className="mr-2 h-4 w-4" />
+                              Ouvrir lien de paiement
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => copyPaymentLink(invoice.paymentLink!)}>
+                              <Copy className="mr-2 h-4 w-4" />
+                              Copier lien de paiement
+                            </DropdownMenuItem>
+                          </>
+                        )}
+
                         <DropdownMenuSeparator />
+                        
                         <DropdownMenuItem onClick={() => openEditDialog(invoice)}>
                           <Edit className="mr-2 h-4 w-4" />
                           Modifier
@@ -622,8 +785,15 @@ export default function InvoicesPage() {
             <div className="grid gap-2">
               <Label htmlFor="project">Projet (optionnel)</Label>
               <Select 
-                value={formData.projectId || ""} 
+                value={formData.projectId || "none"} 
                 onValueChange={(value) => {
+                  if (value === "none") {
+                    setFormData({
+                      ...formData, 
+                      projectId: undefined
+                    })
+                    return
+                  }
                   const project = projects.find(p => p.id === value)
                   setFormData({
                     ...formData, 
@@ -638,7 +808,7 @@ export default function InvoicesPage() {
                   <SelectValue placeholder="Sélectionner un projet" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Aucun projet</SelectItem>
+                  <SelectItem value="none">Aucun projet</SelectItem>
                   {projects.map((project) => (
                     <SelectItem key={project.id} value={project.id}>
                       {project.name} - {formatCurrency(project.amount)}
@@ -782,6 +952,80 @@ export default function InvoicesPage() {
               </Select>
             </div>
 
+            <div className="grid gap-2">
+              <Label htmlFor="edit-client">Client (optionnel)</Label>
+              <Select 
+                value="" 
+                onValueChange={(value) => {
+                  if (value === "manual") {
+                    // Reset to manual entry
+                    return
+                  }
+                  const client = clients.find(c => c.id === value)
+                  if (client) {
+                    setFormData({
+                      ...formData, 
+                      projectId: "",
+                      clientName: client.name,
+                      clientEmail: client.email || "",
+                      clientPhone: client.phone || "",
+                      clientAddress: client.address || ""
+                    })
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Sélectionner un client" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="manual">Saisie manuelle</SelectItem>
+                  {clients.map((client) => (
+                    <SelectItem key={client.id} value={client.id}>
+                      {client.name}
+                      {client.company && ` - ${client.company}`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="edit-project">Projet (optionnel)</Label>
+              <Select 
+                value={formData.projectId || "none"} 
+                onValueChange={(value) => {
+                  if (value === "none") {
+                    setFormData({
+                      ...formData, 
+                      projectId: undefined
+                    })
+                    return
+                  }
+                  const project = projects.find(p => p.id === value)
+                  setFormData({
+                    ...formData, 
+                    projectId: value || undefined,
+                    amount: project ? project.amount : formData.amount,
+                    clientName: project?.client?.name || formData.clientName,
+                    clientEmail: project?.client?.email || formData.clientEmail
+                  })
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Sélectionner un projet" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Aucun projet</SelectItem>
+                  {projects.map((project) => (
+                    <SelectItem key={project.id} value={project.id}>
+                      {project.name} - {formatCurrency(project.amount)}
+                      {project.client && ` (${project.client.name})`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="edit-amount">Montant</Label>
@@ -804,6 +1048,17 @@ export default function InvoicesPage() {
               </div>
             </div>
 
+            <div className="grid gap-2">
+              <Label htmlFor="edit-paidDate">Date de paiement (optionnel)</Label>
+              <Input
+                id="edit-paidDate"
+                type="date"
+                value={formData.paidDate || ""}
+                onChange={(e) => setFormData({...formData, paidDate: e.target.value})}
+                placeholder="Date de paiement si la facture est payée"
+              />
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="edit-clientName">Nom du client</Label>
@@ -823,6 +1078,26 @@ export default function InvoicesPage() {
                   onChange={(e) => setFormData({...formData, clientEmail: e.target.value})}
                 />
               </div>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="edit-clientAddress">Adresse du client</Label>
+              <Input
+                id="edit-clientAddress"
+                value={formData.clientAddress || ""}
+                onChange={(e) => setFormData({...formData, clientAddress: e.target.value})}
+                placeholder="Adresse complète"
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="edit-clientPhone">Téléphone du client</Label>
+              <Input
+                id="edit-clientPhone"
+                value={formData.clientPhone || ""}
+                onChange={(e) => setFormData({...formData, clientPhone: e.target.value})}
+                placeholder="+225 XX XX XX XX"
+              />
             </div>
 
             <div className="grid gap-2">

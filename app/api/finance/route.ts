@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
     
     if (!session?.user?.id) {
       return NextResponse.json(
-        { message: "Non autorisé" },
+        { error: "Non autorisé" },
         { status: 401 }
       )
     }
@@ -21,45 +21,34 @@ export async function GET(request: NextRequest) {
     const now = new Date()
     let startDate: Date
     let endDate: Date
-    let previousStartDate: Date
-    let previousEndDate: Date
 
     switch (period) {
       case 'thisMonth':
         startDate = new Date(now.getFullYear(), now.getMonth(), 1)
         endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-        previousStartDate = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-        previousEndDate = new Date(now.getFullYear(), now.getMonth(), 0)
         break
       case 'lastMonth':
         startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1)
         endDate = new Date(now.getFullYear(), now.getMonth(), 0)
-        previousStartDate = new Date(now.getFullYear(), now.getMonth() - 2, 1)
-        previousEndDate = new Date(now.getFullYear(), now.getMonth() - 1, 0)
         break
       case 'thisYear':
         startDate = new Date(now.getFullYear(), 0, 1)
         endDate = new Date(now.getFullYear(), 11, 31)
-        previousStartDate = new Date(now.getFullYear() - 1, 0, 1)
-        previousEndDate = new Date(now.getFullYear() - 1, 11, 31)
         break
       case 'lastYear':
         startDate = new Date(now.getFullYear() - 1, 0, 1)
         endDate = new Date(now.getFullYear() - 1, 11, 31)
-        previousStartDate = new Date(now.getFullYear() - 2, 0, 1)
-        previousEndDate = new Date(now.getFullYear() - 2, 11, 31)
         break
       default:
         startDate = new Date(now.getFullYear(), 0, 1)
         endDate = new Date(now.getFullYear(), 11, 31)
-        previousStartDate = new Date(now.getFullYear() - 1, 0, 1)
-        previousEndDate = new Date(now.getFullYear() - 1, 11, 31)
     }
 
-    // Récupérer les factures pour la période
-    const invoices = await prisma.invoice.findMany({
+    // Récupérer les factures payées (revenus)
+    const paidInvoices = await prisma.invoice.findMany({
       where: {
         userId: session.user.id,
+        status: 'PAID',
         createdAt: {
           gte: startDate,
           lte: endDate
@@ -67,26 +56,23 @@ export async function GET(request: NextRequest) {
       },
       include: {
         project: {
-          select: {
-            id: true,
-            name: true
-          }
+          select: { name: true }
         }
       }
     })
 
-    // Récupérer les factures de la période précédente pour comparaison
-    const previousInvoices = await prisma.invoice.findMany({
+    // Récupérer toutes les factures pour les statistiques
+    const allInvoices = await prisma.invoice.findMany({
       where: {
         userId: session.user.id,
         createdAt: {
-          gte: previousStartDate,
-          lte: previousEndDate
+          gte: startDate,
+          lte: endDate
         }
       }
     })
 
-    // Récupérer les dépenses pour la période
+    // Récupérer les dépenses
     const expenses = await prisma.expense.findMany({
       where: {
         userId: session.user.id,
@@ -94,60 +80,27 @@ export async function GET(request: NextRequest) {
           gte: startDate,
           lte: endDate
         }
-      }
-    })
-
-    // Récupérer les dépenses de la période précédente
-    const previousExpenses = await prisma.expense.findMany({
-      where: {
-        userId: session.user.id,
-        date: {
-          gte: previousStartDate,
-          lte: previousEndDate
+      },
+      include: {
+        project: {
+          select: { name: true }
         }
       }
     })
 
-    // Calculer les métriques principales
-    const totalRevenue = invoices
-      .filter(inv => inv.status === 'PAID')
-      .reduce((sum, inv) => sum + inv.amount, 0)
-
-    const totalExpenses = expenses.reduce((sum, exp) => sum + exp.amount, 0)
+    // Calculer les totaux
+    const totalRevenue = paidInvoices.reduce((sum, invoice) => sum + invoice.amount, 0)
+    const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0)
     const netProfit = totalRevenue - totalExpenses
 
-    const pendingInvoices = invoices
-      .filter(inv => inv.status === 'PENDING')
-      .reduce((sum, inv) => sum + inv.amount, 0)
-
-    const paidInvoices = invoices
-      .filter(inv => inv.status === 'PAID')
-      .reduce((sum, inv) => sum + inv.amount, 0)
-
-    const overdueInvoices = invoices
-      .filter(inv => inv.status === 'OVERDUE')
-      .reduce((sum, inv) => sum + inv.amount, 0)
-
-    // Calculer la croissance
-    const previousRevenue = previousInvoices
-      .filter(inv => inv.status === 'PAID')
-      .reduce((sum, inv) => sum + inv.amount, 0)
-
-    const growth = previousRevenue > 0 
-      ? ((totalRevenue - previousRevenue) / previousRevenue) * 100 
-      : 0
-
     // Statistiques des factures
-    const invoiceStats = {
-      total: invoices.length,
-      paid: invoices.filter(inv => inv.status === 'PAID').length,
-      pending: invoices.filter(inv => inv.status === 'PENDING').length,
-      overdue: invoices.filter(inv => inv.status === 'OVERDUE').length
-    }
+    const paidInvoicesCount = allInvoices.filter(i => i.status === 'PAID').length
+    const pendingInvoicesCount = allInvoices.filter(i => i.status === 'PENDING').length
+    const overdueInvoicesCount = allInvoices.filter(i => i.status === 'OVERDUE').length
 
-    // Évolution mensuelle (derniers 6 mois)
-    const monthlyRevenue = []
-    for (let i = 5; i >= 0; i--) {
+    // Données mensuelles (12 derniers mois)
+    const monthlyData = []
+    for (let i = 11; i >= 0; i--) {
       const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1)
       const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0)
       
@@ -172,81 +125,115 @@ export async function GET(request: NextRequest) {
         }
       })
 
-      const monthRevenue = monthInvoices.reduce((sum, inv) => sum + inv.amount, 0)
-      const monthExpense = monthExpenses.reduce((sum, exp) => sum + exp.amount, 0)
+      const revenue = monthInvoices.reduce((sum, invoice) => sum + invoice.amount, 0)
+      const expenseTotal = monthExpenses.reduce((sum, expense) => sum + expense.amount, 0)
 
-      monthlyRevenue.push({
+      monthlyData.push({
         month: monthStart.toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' }),
-        revenue: monthRevenue,
-        expenses: monthExpense
+        revenue,
+        expenses: expenseTotal,
+        profit: revenue - expenseTotal
       })
     }
 
-    // Revenus par projet
-    const projectRevenue = new Map<string, { name: string; amount: number }>()
-    
-    invoices
-      .filter(inv => inv.status === 'PAID' && inv.project)
-      .forEach(inv => {
-        const projectId = inv.project!.id
-        const projectName = inv.project!.name
-        
-        if (projectRevenue.has(projectId)) {
-          projectRevenue.get(projectId)!.amount += inv.amount
-        } else {
-          projectRevenue.set(projectId, { name: projectName, amount: inv.amount })
-        }
-      })
-
-    const revenueByProject = Array.from(projectRevenue.values())
-      .map(project => ({
-        ...project,
-        percentage: totalRevenue > 0 ? (project.amount / totalRevenue) * 100 : 0
-      }))
-      .sort((a, b) => b.amount - a.amount)
-
     // Dépenses par catégorie
-    const expensesByCategory = expenses.reduce((acc, expense) => {
-      const category = expense.category || 'Autres'
-      if (acc[category]) {
-        acc[category] += expense.amount
-      } else {
-        acc[category] = expense.amount
+    const expensesByCategory = await prisma.expense.groupBy({
+      by: ['category'],
+      where: {
+        userId: session.user.id,
+        date: {
+          gte: startDate,
+          lte: endDate
+        }
+      },
+      _sum: {
+        amount: true
+      },
+      _count: {
+        id: true
       }
-      return acc
-    }, {} as Record<string, number>)
+    })
 
-    const expensesByCategoryArray = Object.entries(expensesByCategory)
-      .map(([category, amount]) => ({
-        category,
-        amount,
-        percentage: totalExpenses > 0 ? (amount / totalExpenses) * 100 : 0
-      }))
-      .sort((a, b) => b.amount - a.amount)
+    const formattedExpensesByCategory = expensesByCategory.map(group => ({
+      category: group.category || 'OTHER',
+      amount: group._sum.amount || 0,
+      count: group._count.id
+    }))
+
+    // Transactions récentes (revenus et dépenses)
+    const recentTransactions: any[] = []
+
+    // Ajouter les factures récentes
+    const recentInvoices = await prisma.invoice.findMany({
+      where: {
+        userId: session.user.id
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      include: {
+        project: {
+          select: { name: true }
+        }
+      }
+    })
+
+    recentInvoices.forEach(invoice => {
+      recentTransactions.push({
+        id: `invoice-${invoice.id}`,
+        type: 'revenue' as const,
+        description: `Facture ${invoice.invoiceNumber}${invoice.project ? ` - ${invoice.project.name}` : ''}`,
+        amount: invoice.amount,
+        date: invoice.createdAt.toISOString(),
+        status: invoice.status
+      })
+    })
+
+    // Ajouter les dépenses récentes
+    const recentExpenses = await prisma.expense.findMany({
+      where: {
+        userId: session.user.id
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      include: {
+        project: {
+          select: { name: true }
+        }
+      }
+    })
+
+    recentExpenses.forEach(expense => {
+      recentTransactions.push({
+        id: `expense-${expense.id}`,
+        type: 'expense' as const,
+        description: expense.description,
+        amount: expense.amount,
+        date: expense.date.toISOString(),
+        status: 'PAID',
+        category: expense.category
+      })
+    })
+
+    // Trier les transactions par date
+    recentTransactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 
     const financeData = {
       totalRevenue,
       totalExpenses,
       netProfit,
-      pendingInvoices,
-      paidInvoices,
-      overdueInvoices,
-      monthlyRevenue,
-      revenueByProject,
-      expensesByCategory: expensesByCategoryArray,
-      cashFlow: {
-        thisMonth: totalRevenue,
-        lastMonth: previousRevenue,
-        growth
-      },
-      invoiceStats
+      pendingInvoices: pendingInvoicesCount,
+      paidInvoices: paidInvoicesCount,
+      overdueInvoices: overdueInvoicesCount,
+      monthlyData,
+      expensesByCategory: formattedExpensesByCategory,
+      recentTransactions: recentTransactions.slice(0, 20)
     }
 
     return NextResponse.json(financeData)
   } catch (error) {
-    console.error("Erreur lors de la récupération des données financières:", error)
+    console.error("Erreur lors du calcul des données financières:", error)
     return NextResponse.json(
-      { message: "Erreur interne du serveur" },
+      { error: "Erreur lors du calcul des données financières" },
       { status: 500 }
     )
   }

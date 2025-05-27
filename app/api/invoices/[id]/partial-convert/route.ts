@@ -24,7 +24,8 @@ const partialConvertSchema = z.object({
   notes: z.string().optional(),
   generatePaymentLink: z.boolean().default(false),
   paymentMethod: z.enum(["WAVE", "CASH", "BANK_TRANSFER"]).optional(),
-  markAsPaid: z.boolean().default(false)
+  markAsPaid: z.boolean().default(false),
+  paidDate: z.string().optional()
 })
 
 // POST - Convertir partiellement une proforma en facture
@@ -113,10 +114,55 @@ export async function POST(
 
     let paymentLink = null
 
-    // TODO: Implémenter l'intégration Wave CI plus tard
+    // Intégration Wave CI réelle
     if (validatedData.generatePaymentLink && validatedData.paymentMethod === "WAVE") {
-      // Pour l'instant, on génère un lien fictif
-      paymentLink = `https://checkout.wave.com/pay/${Date.now()}`
+      try {
+        // Récupérer la configuration Wave de l'utilisateur
+        const user = await prisma.user.findUnique({
+          where: { id: session.user.id },
+          select: { waveApiKey: true }
+        })
+
+        if (user?.waveApiKey) {
+          // Préparer les données pour Wave CI
+          const checkoutData = {
+            amount: totalAmount.toString(),
+            currency: "XOF",
+            error_url: `${process.env.NEXTAUTH_URL}/payment/error?invoice=${invoiceNumber}`,
+            success_url: `${process.env.NEXTAUTH_URL}/payment/success?invoice=${invoiceNumber}`,
+            client_reference: invoiceNumber
+          }
+
+          // Appeler l'API Wave CI
+          const waveResponse = await fetch('https://api.wave.com/v1/checkout/sessions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${user.waveApiKey}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(checkoutData)
+          })
+
+          if (waveResponse.ok) {
+            const waveData = await waveResponse.json()
+            paymentLink = waveData.wave_launch_url
+          } else {
+            console.error('Erreur Wave API:', await waveResponse.text())
+          }
+        }
+      } catch (error) {
+        console.error('Erreur lors de la création du lien de paiement Wave:', error)
+      }
+    }
+
+    // Déterminer la date de paiement
+    let paidDate = null
+    if (validatedData.markAsPaid) {
+      if (validatedData.paidDate) {
+        paidDate = new Date(validatedData.paidDate)
+      } else {
+        paidDate = new Date() // Date actuelle par défaut
+      }
     }
 
     // Créer la facture partielle
@@ -127,7 +173,7 @@ export async function POST(
         amount: totalAmount,
         status: validatedData.markAsPaid ? "PAID" : "PENDING",
         dueDate: validatedData.dueDate ? new Date(validatedData.dueDate) : proforma.dueDate,
-        paidDate: validatedData.markAsPaid ? new Date() : null,
+        paidDate: paidDate,
         paymentLink: paymentLink,
         notes: validatedData.notes,
         clientName: clientName,
@@ -177,7 +223,7 @@ export async function POST(
     if (totalInvoicedAmount >= proforma.amount) {
       await prisma.invoice.update({
         where: { id: proforma.id },
-        data: { status: "CANCELLED" }
+        data: { status: "CONVERTED" }
       })
     }
 

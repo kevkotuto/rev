@@ -30,13 +30,18 @@ export async function GET(
           select: {
             id: true,
             name: true,
+            type: true,
             status: true,
-            amount: true
-          }
-        },
-        _count: {
-          select: {
-            projects: true
+            amount: true,
+            startDate: true,
+            endDate: true,
+            logo: true,
+            _count: {
+              select: {
+                invoices: true,
+                tasks: true
+              }
+            }
           }
         }
       }
@@ -49,7 +54,38 @@ export async function GET(
       )
     }
 
-    return NextResponse.json(client)
+    // Récupérer les factures via les projets du client
+    const invoices = await prisma.invoice.findMany({
+      where: {
+        project: {
+          clientId: id,
+          userId: session.user.id
+        }
+      },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        amount: true,
+        status: true,
+        type: true,
+        createdAt: true,
+        dueDate: true,
+        paidDate: true,
+        project: {
+          select: {
+            name: true
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    })
+
+    return NextResponse.json({
+      ...client,
+      invoices
+    })
   } catch (error) {
     console.error("Erreur lors de la récupération du client:", error)
     return NextResponse.json(

@@ -138,6 +138,7 @@ export function PartialInvoiceConversion({
     generatePaymentLink: false,
     paymentMethod: "CASH" as "WAVE" | "CASH" | "BANK_TRANSFER",
     markAsPaid: false,
+    paidDate: new Date().toISOString().split('T')[0],
     clientInfo: {
       name: "",
       email: "",
@@ -237,7 +238,8 @@ export function PartialInvoiceConversion({
           notes: formData.notes || undefined,
           generatePaymentLink: formData.generatePaymentLink,
           paymentMethod: formData.paymentMethod,
-          markAsPaid: formData.markAsPaid
+          markAsPaid: formData.markAsPaid,
+          paidDate: formData.markAsPaid ? formData.paidDate : undefined
         })
       })
 
@@ -525,8 +527,20 @@ export function PartialInvoiceConversion({
                         setFormData(prev => ({ ...prev, markAsPaid: checked }))
                       }
                     />
-                    <Label htmlFor="markAsPaid">Marquer comme payée</Label>
+                    <Label htmlFor="markAsPaid">Marquer comme payée immédiatement</Label>
                   </div>
+
+                  {formData.markAsPaid && (
+                    <div className="space-y-2">
+                      <Label htmlFor="paidDate">Date de paiement</Label>
+                      <Input
+                        id="paidDate"
+                        type="date"
+                        value={formData.paidDate}
+                        onChange={(e) => setFormData(prev => ({ ...prev, paidDate: e.target.value }))}
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {/* Résumé */}

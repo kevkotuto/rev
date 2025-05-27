@@ -6,7 +6,7 @@ import { invoiceSchema } from "@/lib/validations"
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -18,7 +18,7 @@ export async function GET(
       )
     }
 
-    const { id } = params
+    const { id } = await params
 
     const invoice = await prisma.invoice.findFirst({
       where: {
@@ -54,7 +54,7 @@ export async function GET(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -69,12 +69,37 @@ export async function PUT(
     const body = await request.json()
     const validatedData = invoiceSchema.parse(body)
 
-    const { id } = params
+    const { id } = await params
 
-    // Traiter la date correctement
+    // Récupérer la facture existante pour vérifier l'état actuel
+    const existingInvoice = await prisma.invoice.findFirst({
+      where: {
+        id,
+        userId: session.user.id
+      }
+    })
+
+    if (!existingInvoice) {
+      return NextResponse.json(
+        { message: "Facture non trouvée" },
+        { status: 404 }
+      )
+    }
+
+    // Traiter les dates correctement
     const updateData = {
       ...validatedData,
       dueDate: validatedData.dueDate ? new Date(validatedData.dueDate) : null,
+      paidDate: validatedData.paidDate ? new Date(validatedData.paidDate) : null,
+    }
+
+    // Gestion du statut en fonction de la date de paiement
+    if (validatedData.paidDate && !existingInvoice.paidDate) {
+      // Une date de paiement est ajoutée -> marquer comme payée
+      (updateData as any).status = 'PAID'
+    } else if (!validatedData.paidDate && existingInvoice.paidDate) {
+      // La date de paiement est supprimée -> remettre en attente
+      (updateData as any).status = 'PENDING'
     }
 
     // Supprimer les champs qui ne sont pas dans le modèle Prisma
@@ -118,7 +143,7 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -130,7 +155,7 @@ export async function DELETE(
       )
     }
 
-    const { id } = params
+    const { id } = await params
 
     const invoice = await prisma.invoice.deleteMany({
       where: {

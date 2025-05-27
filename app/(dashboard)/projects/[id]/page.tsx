@@ -31,7 +31,8 @@ import {
   CreditCard,
   Receipt,
   UserPlus,
-  Banknote
+  Banknote,
+  X
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -104,6 +105,7 @@ interface Project {
       name: string
       role?: string
       photo?: string
+      waveRecipientId?: string
     }
   }>
   createdAt: string
@@ -128,6 +130,7 @@ interface Provider {
   phone?: string
   role?: string
   photo?: string
+  waveRecipientId?: string
 }
 
 interface Expense {
@@ -217,8 +220,7 @@ export default function ProjectDetailPage() {
     generatePaymentLink: false,
     paymentMethod: "CASH" as "WAVE" | "CASH" | "BANK_TRANSFER",
     markAsPaid: false,
-    conversionType: "FULL" as "FULL" | "PARTIAL",
-    partialAmount: 0
+    paidDate: new Date().toISOString().split('T')[0] // Date d'aujourd'hui par défaut
   })
 
   const [fileUpload, setFileUpload] = useState<File | null>(null)
@@ -326,8 +328,10 @@ export default function ProjectDetailPage() {
 
     try {
       const requestData = {
-        ...convertForm,
-        amount: convertForm.conversionType === "PARTIAL" ? convertForm.partialAmount : selectedProforma.amount
+        generatePaymentLink: convertForm.generatePaymentLink,
+        paymentMethod: convertForm.paymentMethod,
+        markAsPaid: convertForm.markAsPaid,
+        paidDate: convertForm.markAsPaid ? convertForm.paidDate : undefined
       }
 
       const response = await fetch(`/api/invoices/${selectedProforma.id}/convert`, {
@@ -338,11 +342,7 @@ export default function ProjectDetailPage() {
 
       if (response.ok) {
         const result = await response.json()
-        if (convertForm.conversionType === "PARTIAL") {
-          toast.success(`Acompte de ${formatCurrency(convertForm.partialAmount)} créé avec succès`)
-        } else {
-          toast.success(result.message)
-        }
+        toast.success(result.message || 'Proforma convertie en facture avec succès')
         setIsConvertDialogOpen(false)
         fetchProject()
         
@@ -405,6 +405,60 @@ export default function ProjectDetailPage() {
     } catch (error) {
       console.error('Erreur:', error)
       toast.error('Erreur lors de la mise à jour du paiement')
+    }
+  }
+
+  const handleMarkProviderAsUnpaid = async (relationId: string) => {
+    if (!confirm('Êtes-vous sûr de vouloir marquer ce prestataire comme non payé ?')) return
+
+    try {
+      const response = await fetch(`/api/project-providers/${relationId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          isPaid: false, 
+          paymentMethod: null, 
+          paidAt: null 
+        })
+      })
+
+      if (response.ok) {
+        toast.success('Prestataire marqué comme non payé')
+        fetchProject()
+      } else {
+        toast.error('Erreur lors de la mise à jour du statut')
+      }
+    } catch (error) {
+      console.error('Erreur:', error)
+      toast.error('Erreur lors de la mise à jour du statut')
+    }
+  }
+
+  const handleWavePayment = async (providerId: string, projectProviderId: string, amount: number) => {
+    if (!confirm(`Effectuer un paiement Wave de ${formatCurrency(amount)} à ce prestataire ?`)) return
+
+    try {
+      const response = await fetch(`/api/providers/${providerId}/payout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount,
+          projectProviderId,
+          notes: `Paiement Wave pour projet ${project?.name}`
+        })
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        toast.success(result.message)
+        fetchProject()
+      } else {
+        const error = await response.json()
+        toast.error(error.message || 'Erreur lors du paiement Wave')
+      }
+    } catch (error) {
+      console.error('Erreur:', error)
+      toast.error('Erreur lors du paiement Wave')
     }
   }
 
@@ -1283,14 +1337,45 @@ export default function ProjectDetailPage() {
                   </div>
 
                   {!pp.isPaid && (
-                    <Button
-                      size="sm"
-                      className="w-full mt-3"
-                      onClick={() => handleMarkProviderAsPaid(pp.id)}
-                    >
-                      <Banknote className="w-4 h-4 mr-2" />
-                      Marquer comme payé
-                    </Button>
+                    <div className="flex gap-2 mt-3">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-1"
+                        onClick={() => handleMarkProviderAsPaid(pp.id)}
+                      >
+                        <Banknote className="w-4 h-4 mr-2" />
+                        Marquer payé
+                      </Button>
+                      {pp.provider.waveRecipientId && (
+                        <Button
+                          size="sm"
+                          className="flex-1"
+                          onClick={() => handleWavePayment(pp.provider.id, pp.id, pp.amount)}
+                        >
+                          <CreditCard className="w-4 h-4 mr-2" />
+                          Payer Wave
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  {pp.isPaid && (
+                    <div className="flex gap-2 mt-3">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-1 border-red-200 text-red-600 hover:bg-red-50"
+                        onClick={() => handleMarkProviderAsUnpaid(pp.id)}
+                      >
+                        <X className="w-4 h-4 mr-2" />
+                        Marquer non payé
+                      </Button>
+                      <div className="text-xs text-green-600 flex items-center">
+                        <CheckCircle className="w-3 h-3 mr-1" />
+                        Paiement confirmé
+                      </div>
+                    </div>
                   )}
                 </CardContent>
               </Card>
@@ -1525,6 +1610,7 @@ export default function ProjectDetailPage() {
                           id="advance-payment-link"
                           checked={advancePaymentForm.generatePaymentLink}
                           onChange={(e) => setAdvancePaymentForm({ ...advancePaymentForm, generatePaymentLink: e.target.checked })}
+                          aria-label="Générer un lien de paiement Wave"
                         />
                         <Label htmlFor="advance-payment-link">Générer un lien de paiement Wave</Label>
                       </div>
@@ -1592,46 +1678,10 @@ export default function ProjectDetailPage() {
           <DialogHeader>
             <DialogTitle>Convertir en facture</DialogTitle>
             <DialogDescription>
-              Convertissez cette proforma en facture et configurez le paiement.
+              Convertissez cette proforma en facture complète.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="conversionType">Type de conversion</Label>
-              <Select 
-                value={convertForm.conversionType} 
-                onValueChange={(value: "FULL" | "PARTIAL") => 
-                  setConvertForm({ ...convertForm, conversionType: value })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="FULL">Conversion complète</SelectItem>
-                  <SelectItem value="PARTIAL">Acompte (paiement partiel)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {convertForm.conversionType === "PARTIAL" && (
-              <div className="space-y-2">
-                <Label htmlFor="partialAmount">Montant de l'acompte (XOF)</Label>
-                <Input
-                  id="partialAmount"
-                  type="number"
-                  value={convertForm.partialAmount}
-                  onChange={(e) => setConvertForm({ ...convertForm, partialAmount: parseFloat(e.target.value) || 0 })}
-                  placeholder="Montant de l'acompte"
-                />
-                {selectedProforma && (
-                  <p className="text-sm text-muted-foreground">
-                    Montant total: {formatCurrency(selectedProforma.amount)}
-                  </p>
-                )}
-              </div>
-            )}
-
             <div className="flex items-center space-x-2">
               <input
                 type="checkbox"
@@ -1672,15 +1722,29 @@ export default function ProjectDetailPage() {
                 onChange={(e) => setConvertForm({ ...convertForm, markAsPaid: e.target.checked })}
                 aria-label="Marquer comme payée"
               />
-              <Label htmlFor="markAsPaid">Marquer comme payée (paiement cash)</Label>
+              <Label htmlFor="markAsPaid">Marquer comme payée immédiatement</Label>
             </div>
+
+            {convertForm.markAsPaid && (
+              <div className="grid gap-2">
+                <Label htmlFor="paidDate">Date de paiement</Label>
+                <Input
+                  id="paidDate"
+                  type="date"
+                  value={convertForm.paidDate}
+                  onChange={(e) => 
+                    setConvertForm({...convertForm, paidDate: e.target.value})
+                  }
+                />
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsConvertDialogOpen(false)}>
               Annuler
             </Button>
             <Button onClick={handleConvertToInvoice}>
-              {convertForm.conversionType === "PARTIAL" ? "Créer l'acompte" : "Convertir en facture"}
+              Convertir en facture
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -16,7 +16,9 @@ import {
   User,
   DollarSign,
   Filter,
-  Eye
+  Eye,
+  Upload,
+  X
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -81,6 +83,7 @@ export default function ProjectsPage() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
+  const [uploading, setUploading] = useState(false)
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -89,7 +92,8 @@ export default function ProjectsPage() {
     amount: "",
     clientId: "",
     startDate: "",
-    endDate: ""
+    endDate: "",
+    logo: ""
   })
 
   useEffect(() => {
@@ -206,6 +210,36 @@ export default function ProjectsPage() {
     }
   }
 
+  const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    setUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('type', 'logo')
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setFormData(prev => ({ ...prev, logo: data.url }))
+        toast.success('Logo uploadé avec succès')
+      } else {
+        toast.error('Erreur lors de l\'upload du logo')
+      }
+    } catch (error) {
+      console.error('Erreur upload:', error)
+      toast.error('Erreur lors de l\'upload du logo')
+    } finally {
+      setUploading(false)
+    }
+  }
+
   const resetForm = () => {
     setFormData({
       name: "",
@@ -215,7 +249,8 @@ export default function ProjectsPage() {
       amount: "",
       clientId: "none",
       startDate: "",
-      endDate: ""
+      endDate: "",
+      logo: ""
     })
     setSelectedProject(null)
   }
@@ -230,7 +265,8 @@ export default function ProjectsPage() {
       amount: project.amount.toString(),
       clientId: project.client?.id || "none",
       startDate: project.startDate ? project.startDate.split('T')[0] : "",
-      endDate: project.endDate ? project.endDate.split('T')[0] : ""
+      endDate: project.endDate ? project.endDate.split('T')[0] : "",
+      logo: ""
     })
     setIsEditDialogOpen(true)
   }
@@ -387,6 +423,49 @@ export default function ProjectsPage() {
                   </Select>
                 </div>
               </div>
+              
+              {/* Logo */}
+              <div className="grid gap-2">
+                <Label>Logo du projet</Label>
+                <div className="flex items-center gap-4">
+                  {formData.logo ? (
+                    <div className="relative">
+                      <img src={formData.logo} alt="Logo projet" className="w-16 h-16 rounded-lg object-cover border" />
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0"
+                        onClick={() => setFormData(prev => ({ ...prev, logo: "" }))}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="w-16 h-16 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center">
+                      <Upload className="h-6 w-6 text-gray-400" />
+                    </div>
+                  )}
+                  <div>
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleLogoUpload}
+                      disabled={uploading}
+                      className="hidden"
+                      id="logo-upload"
+                    />
+                    <Label htmlFor="logo-upload" className="cursor-pointer">
+                      <Button type="button" variant="outline" disabled={uploading} asChild>
+                        <span>
+                          {uploading ? 'Upload...' : 'Choisir un logo'}
+                        </span>
+                      </Button>
+                    </Label>
+                  </div>
+                </div>
+              </div>
+              
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
                   <Label htmlFor="startDate">Date de début</Label>
@@ -654,6 +733,49 @@ export default function ProjectsPage() {
                 </Select>
               </div>
             </div>
+            
+            {/* Logo */}
+            <div className="grid gap-2">
+              <Label>Logo du projet</Label>
+              <div className="flex items-center gap-4">
+                {formData.logo ? (
+                  <div className="relative">
+                    <img src={formData.logo} alt="Logo projet" className="w-16 h-16 rounded-lg object-cover border" />
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0"
+                      onClick={() => setFormData(prev => ({ ...prev, logo: "" }))}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="w-16 h-16 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center">
+                    <Upload className="h-6 w-6 text-gray-400" />
+                  </div>
+                )}
+                <div>
+                  <Input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleLogoUpload}
+                    disabled={uploading}
+                    className="hidden"
+                    id="edit-logo-upload"
+                  />
+                  <Label htmlFor="edit-logo-upload" className="cursor-pointer">
+                    <Button type="button" variant="outline" disabled={uploading} asChild>
+                      <span>
+                        {uploading ? 'Upload...' : 'Choisir un logo'}
+                      </span>
+                    </Button>
+                  </Label>
+                </div>
+              </div>
+            </div>
+            
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="edit-startDate">Date de début</Label>
