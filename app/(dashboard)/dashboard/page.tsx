@@ -71,6 +71,24 @@ interface DashboardStats {
       revenue: number
     }>
   }
+  wave?: {
+    totalTransactions: number
+    totalRevenue: number
+    totalExpenses: number
+    netAmount: number
+    recentTransactions: Array<{
+      id: string
+      transactionId: string
+      type: string
+      description: string
+      amount: number
+      currency: string
+      timestamp: string
+      counterpartyName?: string
+      project?: { id: string; name: string }
+      client?: { id: string; name: string }
+    }>
+  }
   recentActivities: {
     invoices: Array<{
       id: string
@@ -113,7 +131,9 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [waveBalance, setWaveBalance] = useState<{balance: number, currency: string} | null>(null)
+  const [waveStats, setWaveStats] = useState<any>(null)
   const [loadingBalance, setLoadingBalance] = useState(false)
+  const [loadingWaveStats, setLoadingWaveStats] = useState(false)
   const [aiAnalysis, setAiAnalysis] = useState<any>(null)
   const [loadingAnalysis, setLoadingAnalysis] = useState(false)
   
@@ -128,6 +148,7 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchStats()
     fetchWaveBalance()
+    fetchWaveStats()
   }, [selectedPeriod, customDateRange])
 
   // Fonction pour calculer les dates en fonction de la période
@@ -194,6 +215,21 @@ export default function DashboardPage() {
       console.error('Erreur lors du chargement du solde Wave:', error)
     } finally {
       setLoadingBalance(false)
+    }
+  }
+
+  const fetchWaveStats = async () => {
+    setLoadingWaveStats(true)
+    try {
+      const response = await fetch('/api/wave/stats')
+      if (response.ok) {
+        const data = await response.json()
+        setWaveStats(data)
+      }
+    } catch (error) {
+      console.error('Erreur lors du chargement des statistiques Wave:', error)
+    } finally {
+      setLoadingWaveStats(false)
     }
   }
 
@@ -504,11 +540,14 @@ export default function DashboardPage() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={fetchWaveBalance}
-                  disabled={loadingBalance}
+                  onClick={() => {
+                    fetchWaveBalance()
+                    fetchWaveStats()
+                  }}
+                  disabled={loadingBalance || loadingWaveStats}
                   className="h-6 w-6 p-0"
                 >
-                  <RefreshCw className={`h-3 w-3 ${loadingBalance ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`h-3 w-3 ${loadingBalance || loadingWaveStats ? 'animate-spin' : ''}`} />
                 </Button>
               </div>
             </CardHeader>
@@ -534,7 +573,10 @@ export default function DashboardPage() {
                   </p>
                   {!loadingBalance && (
                     <button 
-                      onClick={fetchWaveBalance}
+                      onClick={() => {
+                        fetchWaveBalance()
+                        fetchWaveStats()
+                      }}
                       className="text-xs text-orange-600 hover:text-orange-700 mt-1"
                     >
                       Tester la connexion
@@ -753,6 +795,103 @@ export default function DashboardPage() {
           </Card>
         </motion.div>
       </div>
+
+      {/* Section Wave Transactions */}
+      {waveStats && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 1.3 }}
+        >
+          <Card className="border-orange-200 bg-orange-50/50">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Zap className="h-5 w-5 text-orange-600" />
+                Transactions Wave
+                <Badge variant="outline" className="ml-auto">
+                  {waveStats.totalTransactions} transactions
+                </Badge>
+              </CardTitle>
+              <CardDescription>
+                Aperçu de votre activité Wave CI
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 md:grid-cols-3 mb-6">
+                <div className="text-center p-4 bg-white rounded-lg border">
+                  <div className="text-2xl font-bold text-green-600">
+                    {formatCurrency(waveStats.totalRevenue)}
+                  </div>
+                  <p className="text-sm text-muted-foreground">Revenus Wave</p>
+                </div>
+                <div className="text-center p-4 bg-white rounded-lg border">
+                  <div className="text-2xl font-bold text-red-600">
+                    {formatCurrency(waveStats.totalExpenses)}
+                  </div>
+                  <p className="text-sm text-muted-foreground">Dépenses Wave</p>
+                </div>
+                <div className="text-center p-4 bg-white rounded-lg border">
+                  <div className={`text-2xl font-bold ${waveStats.netAmount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {formatCurrency(waveStats.netAmount)}
+                  </div>
+                  <p className="text-sm text-muted-foreground">Net Wave</p>
+                </div>
+              </div>
+
+              {waveStats.recentTransactions.length > 0 && (
+                <div>
+                  <h4 className="font-medium mb-3 flex items-center gap-2">
+                    <Clock className="h-4 w-4" />
+                    Transactions récentes
+                  </h4>
+                  <div className="space-y-2">
+                    {waveStats.recentTransactions.slice(0, 3).map((transaction: any) => (
+                      <div key={transaction.id} className="flex items-center justify-between p-3 bg-white rounded-lg border">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-2 h-2 rounded-full ${transaction.type === 'revenue' ? 'bg-green-500' : 'bg-red-500'}`} />
+                          <div>
+                            <p className="font-medium text-sm">{transaction.description}</p>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <span>{new Date(transaction.timestamp).toLocaleDateString('fr-FR')}</span>
+                              {transaction.counterpartyName && (
+                                <span>• {transaction.counterpartyName}</span>
+                              )}
+                              {transaction.project && (
+                                <span>• {transaction.project.name}</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <div className={`font-medium ${transaction.type === 'revenue' ? 'text-green-600' : 'text-red-600'}`}>
+                          {transaction.type === 'revenue' ? '+' : '-'}{formatCurrency(Math.abs(transaction.amount))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 text-center">
+                    <Button variant="outline" size="sm" onClick={() => window.location.href = '/wave-transactions'}>
+                      Voir toutes les transactions Wave
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {waveStats.recentTransactions.length === 0 && (
+                <div className="text-center py-8">
+                  <Zap className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+                  <h3 className="text-lg font-medium mb-2">Aucune transaction Wave</h3>
+                  <p className="text-muted-foreground mb-4">
+                    Commencez à utiliser Wave CI pour voir vos transactions ici
+                  </p>
+                  <Button onClick={() => window.location.href = '/wave-transactions'}>
+                    Configurer Wave CI
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
 
       {/* Section IA et Tâches */}
       <div className="grid gap-4 lg:grid-cols-2">

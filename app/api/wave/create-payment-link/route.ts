@@ -64,8 +64,8 @@ export async function POST(request: NextRequest) {
     const wavePayload: any = {
       amount: formattedAmount,
       currency: currency,
-      success_url: `${process.env.NEXTAUTH_URL}/payment/success`,
-      error_url: `${process.env.NEXTAUTH_URL}/payment/error`,
+      success_url: `${process.env.NODE_ENV === 'production' ? process.env.NEXTAUTH_URL : 'https://rev-freelance.vercel.app'}/payment/success?type=payment_link&amount=${formattedAmount}&currency=${currency}`,
+      error_url: `${process.env.NODE_ENV === 'production' ? process.env.NEXTAUTH_URL : 'https://rev-freelance.vercel.app'}/payment/error?type=payment_link&amount=${formattedAmount}&currency=${currency}`,
     }
 
     // Ajouter la référence client si fournie
