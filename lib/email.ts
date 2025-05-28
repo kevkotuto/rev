@@ -17,14 +17,9 @@ interface EmailOptions {
 // Fonction pour générer le HTML du PDF
 function generateInvoicePDFHTML(invoice: any, user: any, companySettings: any) {
   const formatCurrency = (amount: number) => {
-    // Mapper FCFA vers XOF pour Intl.NumberFormat
-    const currencyCode = user?.currency === 'FCFA' ? 'XOF' : (user?.currency || 'XOF')
-    
-    return new Intl.NumberFormat('fr-FR', {
-      style: 'currency',
-      currency: currencyCode,
-      minimumFractionDigits: 0,
-    }).format(amount)
+    // Formatage manuel pour éviter les problèmes avec Intl
+    const formatted = amount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
+    return formatted + ' FCFA'
   }
 
   const formatDate = (date: string | Date) => {
@@ -696,6 +691,13 @@ function generateSimpleEmailTemplate(invoice: any, user: any, customMessage: str
             ${user.phone ? `<p>📞 ${user.phone}</p>` : ''}
             <p>📧 ${user.email}</p>
             ${user.website ? `<p>🌐 ${user.website}</p>` : ''}
+            
+            ${user.signature ? `
+              <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #e5e7eb;">
+                <p style="margin: 0 0 10px 0; font-size: 14px; color: #6b7280;">Signature :</p>
+                <img src="${user.signature}" alt="Signature" style="max-width: 150px; height: auto; border: 1px solid #e5e7eb; border-radius: 4px; padding: 5px; background: white;">
+              </div>
+            ` : ''}
           </div>
           
           <p style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #e5e7eb; font-size: 12px;">
@@ -714,14 +716,9 @@ function generateSimpleEmailTemplate(invoice: any, user: any, customMessage: str
 export function generateInvoiceEmailTemplate(invoice: any, user: any, customMessage?: string) {
   // Fonction pour formater la devise
   const formatCurrency = (amount: number) => {
-    // Mapper FCFA vers XOF pour Intl.NumberFormat
-    const currencyCode = user.currency === 'FCFA' ? 'XOF' : (user.currency || 'XOF')
-    
-    return new Intl.NumberFormat('fr-FR', {
-      style: 'currency',
-      currency: currencyCode,
-      minimumFractionDigits: 0,
-    }).format(amount)
+    // Formatage manuel pour éviter les problèmes avec Intl
+    const formatted = amount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
+    return formatted + ' FCFA'
   }
 
   // Fonction pour formater les dates
@@ -1029,6 +1026,13 @@ export function generateInvoiceEmailTemplate(invoice: any, user: any, customMess
             ${user.phone ? `<p>📞 ${user.phone}</p>` : ''}
             <p>📧 ${user.email}</p>
             ${user.website ? `<p>🌐 ${user.website}</p>` : ''}
+            
+            ${user.signature ? `
+              <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #e5e7eb;">
+                <p style="margin: 0 0 10px 0; font-size: 14px; color: #6b7280;">Signature :</p>
+                <img src="${user.signature}" alt="Signature" style="max-width: 150px; height: auto; border: 1px solid #e5e7eb; border-radius: 4px; padding: 5px; background: white;">
+              </div>
+            ` : ''}
           </div>
           
           <p style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #e5e7eb; font-size: 12px;">

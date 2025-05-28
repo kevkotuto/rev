@@ -73,11 +73,9 @@ export async function GET(
 
 function generateProformaPreviewHTML(proforma: any, user: any, companySettings: any) {
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('fr-FR', {
-      style: 'currency',
-      currency: 'XOF',
-      minimumFractionDigits: 0,
-    }).format(amount)
+    // Formatage manuel pour éviter les problèmes avec Intl
+    const formatted = amount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
+    return formatted + ' FCFA'
   }
 
   const formatDate = (date: string | Date) => {

@@ -52,11 +52,14 @@ import {
   Copy,
   RefreshCw,
   Link,
-  CreditCard
+  CreditCard,
+  ArrowRight,
+  RotateCcw
 } from "lucide-react"
 import { toast } from "sonner"
 import { formatCurrency, formatDate } from "@/lib/format"
 import { EmailPreviewDialog } from "@/components/email-preview-dialog"
+import { PartialInvoiceConversion } from "@/components/partial-invoice-conversion"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 
 interface Invoice {
@@ -64,7 +67,7 @@ interface Invoice {
   invoiceNumber: string
   type: "INVOICE" | "PROFORMA"
   amount: number
-  status: "PENDING" | "PAID" | "OVERDUE" | "CANCELLED"
+  status: "PENDING" | "PAID" | "OVERDUE" | "CANCELLED" | "CONVERTED"
   dueDate?: string
   paidDate?: string
   paymentLink?: string
@@ -156,6 +159,10 @@ export default function InvoicesPage() {
   const [emailInvoiceId, setEmailInvoiceId] = useState<string>("")
   const [emailInvoiceType, setEmailInvoiceType] = useState<"INVOICE" | "PROFORMA">("INVOICE")
   const [showPaymentLinkDialog, setShowPaymentLinkDialog] = useState(false)
+  const [showConvertDialog, setShowConvertDialog] = useState(false)
+  const [showPartialConvertDialog, setShowPartialConvertDialog] = useState(false)
+  const [convertingInvoice, setConvertingInvoice] = useState<Invoice | null>(null)
+  const [partialConvertingInvoice, setPartialConvertingInvoice] = useState<Invoice | null>(null)
   
   // Hook de confirmation
   const { confirm, ConfirmDialog } = useConfirmDialog()
@@ -167,15 +174,8 @@ export default function InvoicesPage() {
     generatePaymentLink: false
   })
 
-  const [editFormData, setEditFormData] = useState<InvoiceFormData>({
-    type: "INVOICE",
-    amount: 0,
-    generatePaymentLink: false
-  })
-
   // États pour la validation
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
-  const [editFormErrors, setEditFormErrors] = useState<Record<string, string>>({})
 
   const [paymentLinkForm, setPaymentLinkForm] = useState<PaymentLinkFormData>({
     amount: "",
@@ -183,6 +183,13 @@ export default function InvoicesPage() {
     recipient_type: "client",
     description: "",
     client_reference: ""
+  })
+
+  const [convertForm, setConvertForm] = useState({
+    generatePaymentLink: false,
+    paymentMethod: "CASH" as "WAVE" | "CASH" | "BANK_TRANSFER",
+    markAsPaid: false,
+    paidDate: new Date().toISOString().split('T')[0]
   })
 
   // Statistiques
@@ -340,7 +347,7 @@ export default function InvoicesPage() {
   const handleEditInvoice = async () => {
     if (!editingInvoice) return
 
-    const errors = validateForm(editFormData)
+    const errors = validateForm(formData)
     
     if (errors.length > 0) {
       toast.error(errors[0])
@@ -351,7 +358,7 @@ export default function InvoicesPage() {
       const response = await fetch(`/api/invoices/${editingInvoice.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editFormData)
+        body: JSON.stringify(formData)
       })
 
       if (response.ok) {
@@ -563,6 +570,51 @@ export default function InvoicesPage() {
       description: "",
       client_reference: ""
     })
+  }
+
+  const handleConvertToInvoice = (proforma: Invoice) => {
+    setConvertingInvoice(proforma)
+    setShowConvertDialog(true)
+  }
+
+  const handlePartialConvert = (proforma: Invoice) => {
+    setPartialConvertingInvoice(proforma)
+    setShowPartialConvertDialog(true)
+  }
+
+  const handleConfirmConversion = async () => {
+    if (!convertingInvoice) return
+
+    try {
+      const response = await fetch(`/api/invoices/${convertingInvoice.id}/convert`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          generatePaymentLink: convertForm.generatePaymentLink,
+          paymentMethod: convertForm.paymentMethod,
+          markAsPaid: convertForm.markAsPaid,
+          paidDate: convertForm.markAsPaid ? convertForm.paidDate : undefined
+        })
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        toast.success(result.message || 'Proforma converti en facture avec succès')
+        setShowConvertDialog(false)
+        setConvertingInvoice(null)
+        fetchInvoices()
+        
+        if (result.paymentLink) {
+          window.open(result.paymentLink, '_blank')
+        }
+      } else {
+        const error = await response.json()
+        toast.error(error.message || 'Erreur lors de la conversion')
+      }
+    } catch (error) {
+      console.error('Erreur:', error)
+      toast.error('Erreur lors de la conversion')
+    }
   }
 
   const handleSendEmail = (invoice: Invoice) => {
@@ -904,6 +956,20 @@ export default function InvoicesPage() {
                           Télécharger PDF
                         </DropdownMenuItem>
 
+                        {invoice.type === 'PROFORMA' && invoice.status !== 'CONVERTED' && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => handleConvertToInvoice(invoice)}>
+                              <ArrowRight className="mr-2 h-4 w-4" />
+                              Convertir en facture
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handlePartialConvert(invoice)}>
+                              <RotateCcw className="mr-2 h-4 w-4" />
+                              Conversion partielle
+                            </DropdownMenuItem>
+                          </>
+                        )}
+
                         <DropdownMenuSeparator />
 
                         {invoice.status !== 'PAID' && invoice.type === 'INVOICE' && (
@@ -965,15 +1031,15 @@ export default function InvoicesPage() {
 
       {/* Dialog de création */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle>Créer une nouvelle facture</DialogTitle>
             <DialogDescription>
               Créez une facture ou une proforma pour vos clients
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-4 py-4">
+          <div className="grid gap-4 py-4 overflow-y-auto flex-1 pr-2">
             <div className="grid gap-2">
               <Label htmlFor="type">Type</Label>
               <Select 
@@ -1130,7 +1196,7 @@ export default function InvoicesPage() {
             )}
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="flex-shrink-0 mt-4">
             <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
               Annuler
             </Button>
@@ -1146,15 +1212,15 @@ export default function InvoicesPage() {
 
       {/* Dialog de modification */}
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle>Modifier la facture</DialogTitle>
             <DialogDescription>
               Modifiez les informations de la facture
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-4 py-4">
+          <div className="grid gap-4 py-4 overflow-y-auto flex-1 pr-2">
             <div className="grid gap-2">
               <Label htmlFor="edit-type">Type</Label>
               <Select 
@@ -1332,7 +1398,7 @@ export default function InvoicesPage() {
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="flex-shrink-0 mt-4">
             <Button variant="outline" onClick={() => setShowEditDialog(false)}>
               Annuler
             </Button>
@@ -1519,6 +1585,117 @@ export default function InvoicesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* Dialog de conversion */}
+      <Dialog open={showConvertDialog} onOpenChange={setShowConvertDialog}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Convertir en facture</DialogTitle>
+            <DialogDescription>
+              Convertir le proforma {convertingInvoice?.invoiceNumber} en facture
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-4">
+            <div className="space-y-4">
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="markAsPaid"
+                  checked={convertForm.markAsPaid}
+                  onCheckedChange={(checked) => 
+                    setConvertForm({...convertForm, markAsPaid: checked as boolean})
+                  }
+                />
+                <Label htmlFor="markAsPaid">
+                  Marquer comme payée immédiatement
+                </Label>
+              </div>
+
+              {convertForm.markAsPaid && (
+                <div className="grid gap-2">
+                  <Label htmlFor="paidDate">Date de paiement</Label>
+                  <Input
+                    id="paidDate"
+                    type="date"
+                    value={convertForm.paidDate}
+                    onChange={(e) => 
+                      setConvertForm({...convertForm, paidDate: e.target.value})
+                    }
+                  />
+                </div>
+              )}
+
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="generatePaymentLink"
+                  checked={convertForm.generatePaymentLink}
+                  onCheckedChange={(checked) => 
+                    setConvertForm({...convertForm, generatePaymentLink: checked as boolean})
+                  }
+                />
+                <Label htmlFor="generatePaymentLink">
+                  Générer un lien de paiement Wave
+                </Label>
+              </div>
+
+              {convertForm.generatePaymentLink && (
+                <div className="grid gap-2">
+                  <Label htmlFor="paymentMethod">Méthode de paiement</Label>
+                  <Select 
+                    value={convertForm.paymentMethod} 
+                    onValueChange={(value: "WAVE" | "CASH" | "BANK_TRANSFER") => 
+                      setConvertForm({...convertForm, paymentMethod: value})
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="WAVE">Wave</SelectItem>
+                      <SelectItem value="CASH">Espèces</SelectItem>
+                      <SelectItem value="BANK_TRANSFER">Virement bancaire</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              <div className="bg-muted p-4 rounded-lg">
+                <p className="text-sm">
+                  <strong>Montant:</strong> {convertingInvoice && formatCurrency(convertingInvoice.amount)}
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Une nouvelle facture sera créée avec ce montant et le proforma sera marqué comme "Convertie".
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowConvertDialog(false)}>
+              Annuler
+            </Button>
+            <Button onClick={handleConfirmConversion}>
+              <CheckCircle className="mr-2 h-4 w-4" />
+              Convertir en facture
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog de conversion partielle */}
+      {partialConvertingInvoice && (
+        <PartialInvoiceConversion
+          proformaId={partialConvertingInvoice.id}
+          isOpen={showPartialConvertDialog}
+          onClose={() => {
+            setShowPartialConvertDialog(false)
+            setPartialConvertingInvoice(null)
+          }}
+          onSuccess={() => {
+            fetchInvoices()
+          }}
+        />
+      )}
+
       {/* Dialog de confirmation */}
       <ConfirmDialog />
     </div>

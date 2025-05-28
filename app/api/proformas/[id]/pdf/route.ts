@@ -33,7 +33,8 @@ export async function GET(
             client: true,
             services: true
           }
-        }
+        },
+        items: true
       }
     })
 
@@ -55,7 +56,7 @@ export async function GET(
     ])
 
     // Générer le PDF avec le même design que les factures
-    const pdf = generateModernProformaPDF(proforma, user, companySettings)
+    const pdf = generateCleanProformaPDF(proforma, user, companySettings)
 
     return new NextResponse(pdf, {
       headers: {
@@ -73,34 +74,32 @@ export async function GET(
   }
 }
 
-function generateModernProformaPDF(proforma: any, user: any, companySettings: any) {
-  const doc = new jsPDF()
-  
-  // Configuration couleurs modernes (identique aux factures)
-  const colors = {
-    primary: [59, 130, 246] as [number, number, number], // blue-500
-    secondary: [71, 85, 105] as [number, number, number], // slate-600
-    accent: [34, 197, 94] as [number, number, number], // green-500
-    text: [15, 23, 42] as [number, number, number], // slate-900
-    muted: [100, 116, 139] as [number, number, number], // slate-500
-    light: [248, 250, 252] as [number, number, number], // slate-50
-    white: [255, 255, 255] as [number, number, number]
-  }
+function generateCleanProformaPDF(proforma: any, user: any, companySettings: any): ArrayBuffer {
+  const doc = new jsPDF('p', 'mm', 'a4')
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const pageHeight = doc.internal.pageSize.getHeight()
+  const margin = 15
+  let currentY = margin
+
+  // Couleurs
+  const primaryColor = [59, 130, 246] as [number, number, number]
+  const textColor = [15, 23, 42] as [number, number, number]
+  const mutedColor = [100, 116, 139] as [number, number, number]
+  const lightColor = [248, 250, 252] as [number, number, number]
+  const whiteColor = [255, 255, 255] as [number, number, number]
+  const accentColor = [34, 197, 94] as [number, number, number]
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('fr-FR', {
-      style: 'currency',
-      currency: 'XOF',
-      minimumFractionDigits: 0,
-    }).format(amount)
+    // Formatage manuel pour éviter les problèmes avec Intl
+    const formatted = amount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
+    return formatted + ' FCFA'
   }
 
   const formatDate = (date: string | Date) => {
     return new Date(date).toLocaleDateString('fr-FR')
   }
 
-  // Calculer la date d'expiration basée sur la date d'échéance ou 30 jours par défaut
-  const getValidityText = () => {
+  const getValidityText = (proforma: any) => {
     if (proforma.dueDate) {
       return `Ce devis est valable jusqu'au ${formatDate(proforma.dueDate)}.`
     } else {
@@ -110,275 +109,313 @@ function generateModernProformaPDF(proforma: any, user: any, companySettings: an
     }
   }
 
-  let yPos = 20
-  const pageWidth = doc.internal.pageSize.width
-  const margin = 20
+  const checkPageBreak = (requiredHeight: number) => {
+    if (currentY + requiredHeight > pageHeight - margin) {
+      doc.addPage()
+      currentY = margin
+    }
+  }
 
-  // En-tête moderne avec gradient effet
-  doc.setFillColor(...colors.primary)
-  doc.rect(0, 0, pageWidth, 40, 'F')
+  // En-tête
+  doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2])
+  doc.rect(0, 0, pageWidth, 30, 'F')
   
-  // Titre du document - PROFORMA
-  doc.setTextColor(...colors.white)
-  doc.setFontSize(24)
+  doc.setTextColor(whiteColor[0], whiteColor[1], whiteColor[2])
+  doc.setFontSize(20)
   doc.setFont('helvetica', 'bold')
-  doc.text('DEVIS PROFORMA', margin, 25)
+  doc.text('DEVIS PROFORMA', margin, 20)
   
-  // Numéro du document
-  doc.setFontSize(14)
+  doc.setFontSize(12)
   doc.setFont('helvetica', 'normal')
-  doc.text(`N° ${proforma.invoiceNumber}`, pageWidth - margin - 50, 25)
+  const numberText = `N° ${proforma.invoiceNumber}`
+  const numberWidth = doc.getTextWidth(numberText)
+  doc.text(numberText, pageWidth - margin - numberWidth, 20)
 
-  yPos = 55
+  currentY = 40
 
-  // Informations entreprise (gauche)
-  doc.setTextColor(...colors.text)
-  doc.setFontSize(16)
-  doc.setFont('helvetica', 'bold')
+  // Informations entreprise et client
   const companyName = companySettings?.name || user?.companyName || user?.name || 'Mon Entreprise'
-  doc.text(companyName, margin, yPos)
-  
-  yPos += 10
-  doc.setFontSize(10)
+  const leftColumnWidth = (pageWidth - 3 * margin) / 2
+  const rightColumnX = margin + leftColumnWidth + margin
+
+  // Entreprise (gauche)
+  doc.setTextColor(textColor[0], textColor[1], textColor[2])
+  doc.setFontSize(14)
+  doc.setFont('helvetica', 'bold')
+  doc.text(companyName, margin, currentY)
+  currentY += 8
+
+  doc.setTextColor(mutedColor[0], mutedColor[1], mutedColor[2])
+  doc.setFontSize(9)
   doc.setFont('helvetica', 'normal')
-  doc.setTextColor(...colors.muted)
-  
+
   const companyInfo = []
   const address = companySettings?.address || user?.address
   const phone = companySettings?.phone || user?.phone
   const email = companySettings?.email || user?.email
-  
+
   if (address) companyInfo.push(address)
   if (phone) companyInfo.push(`Tél: ${phone}`)
   if (email) companyInfo.push(`Email: ${email}`)
-  
+
   companyInfo.forEach(info => {
-    doc.text(info, margin, yPos)
-    yPos += 5
+    const lines = doc.splitTextToSize(info, leftColumnWidth)
+    if (Array.isArray(lines)) {
+      lines.forEach((line: string) => {
+        doc.text(line, margin, currentY)
+        currentY += 4
+      })
+    } else {
+      doc.text(lines, margin, currentY)
+      currentY += 4
+    }
   })
 
-  // Informations légales si disponibles
+  // Informations légales
   if (companySettings) {
-    yPos += 3
+    currentY += 2
     doc.setFontSize(8)
     if (companySettings.rccm) {
-      doc.text(`RCCM: ${companySettings.rccm}`, margin, yPos)
-      yPos += 4
+      doc.text(`RCCM: ${companySettings.rccm}`, margin, currentY)
+      currentY += 3
     }
     if (companySettings.nif) {
-      doc.text(`NIF: ${companySettings.nif}`, margin, yPos)
-      yPos += 4
+      doc.text(`NIF: ${companySettings.nif}`, margin, currentY)
+      currentY += 3
     }
   }
 
-  // Informations client (droite)
-  const clientStartY = 55
-  const clientX = pageWidth - margin - 80
-  
-  doc.setFillColor(...colors.light)
-  doc.rect(clientX - 10, clientStartY - 5, 90, 45, 'F')
-  
-  doc.setTextColor(...colors.primary)
+  // Client (droite)
+  const clientStartY = 40
+  doc.setFillColor(lightColor[0], lightColor[1], lightColor[2])
+  doc.rect(rightColumnX - 5, clientStartY - 5, leftColumnWidth + 10, 40, 'F')
+
+  doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2])
   doc.setFontSize(12)
   doc.setFont('helvetica', 'bold')
-  doc.text('CLIENT', clientX, clientStartY)
-  
-  let clientY = clientStartY + 10
-  doc.setTextColor(...colors.text)
+  doc.text('CLIENT', rightColumnX, clientStartY)
+
+  let clientY = clientStartY + 8
+  doc.setTextColor(textColor[0], textColor[1], textColor[2])
   doc.setFontSize(10)
   doc.setFont('helvetica', 'bold')
-  
+
   const clientName = proforma.clientName || proforma.project?.client?.name || 'Client'
-  const clientNameLines = doc.splitTextToSize(clientName, 75)
-  doc.text(clientNameLines, clientX, clientY)
-  clientY += clientNameLines.length * 5
+  const clientNameLines = doc.splitTextToSize(clientName, leftColumnWidth - 10)
+  if (Array.isArray(clientNameLines)) {
+    clientNameLines.forEach((line: string) => {
+      doc.text(line, rightColumnX, clientY)
+      clientY += 5
+    })
+  } else {
+    doc.text(clientNameLines, rightColumnX, clientY)
+    clientY += 5
+  }
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
-  doc.setTextColor(...colors.muted)
-  
+  doc.setTextColor(mutedColor[0], mutedColor[1], mutedColor[2])
+
   const clientDetails = []
   const clientEmail = proforma.clientEmail || proforma.project?.client?.email
   const clientAddress = proforma.clientAddress || proforma.project?.client?.address
   const clientPhone = proforma.clientPhone || proforma.project?.client?.phone
-  
+
   if (clientEmail) clientDetails.push(clientEmail)
   if (clientAddress) clientDetails.push(clientAddress)
   if (clientPhone) clientDetails.push(`Tél: ${clientPhone}`)
-  
+
   clientDetails.forEach(detail => {
-    const lines = doc.splitTextToSize(detail, 75)
-    doc.text(lines, clientX, clientY)
-    clientY += lines.length * 4
+    const lines = doc.splitTextToSize(detail, leftColumnWidth - 10)
+    if (Array.isArray(lines)) {
+      lines.forEach((line: string) => {
+        doc.text(line, rightColumnX, clientY)
+        clientY += 4
+      })
+    } else {
+      doc.text(lines, rightColumnX, clientY)
+      clientY += 4
+    }
   })
 
-  yPos = Math.max(yPos, clientY) + 20
+  currentY = Math.max(currentY, clientY) + 15
 
-  // Informations du devis - table moderne
+  // Informations du proforma
+  checkPageBreak(30)
+  
   const proformaInfoData = [
     ['Date de création', formatDate(proforma.createdAt)],
     ['Date d\'échéance', proforma.dueDate ? formatDate(proforma.dueDate) : 'Non définie'],
-    ['Validité', getValidityText()],
-    ...(proforma.project ? [['Projet', proforma.project.name]] : [])
+    ['Validité', getValidityText(proforma)]
   ]
 
+  if (proforma.project) {
+    proformaInfoData.push(['Projet', proforma.project.name])
+  }
+
   autoTable(doc, {
-    startY: yPos,
+    startY: currentY,
     body: proformaInfoData,
     bodyStyles: { 
       fontSize: 9,
-      cellPadding: { top: 4, bottom: 4, left: 8, right: 8 }
+      cellPadding: { top: 3, bottom: 3, left: 6, right: 6 }
     },
     columnStyles: {
-      0: { fontStyle: 'bold', cellWidth: 50, fillColor: colors.light },
-      1: { cellWidth: 60 }
+      0: { 
+        fontStyle: 'bold', 
+        cellWidth: 45, 
+        fillColor: lightColor 
+      },
+      1: { cellWidth: 55 }
     },
-    margin: { left: margin, right: pageWidth - margin - 110 },
-    tableWidth: 110
+    margin: { left: margin, right: pageWidth - margin - 100 },
+    tableWidth: 100,
+    theme: 'grid'
   })
 
-  yPos = (doc as any).lastAutoTable.finalY + 20
+  currentY = (doc as any).lastAutoTable.finalY + 15
 
-  // Services/Prestations - Design moderne
-  doc.setTextColor(...colors.text)
-  doc.setFontSize(14)
+  // Services/Items
+  checkPageBreak(50)
+  
+  doc.setTextColor(textColor[0], textColor[1], textColor[2])
+  doc.setFontSize(12)
   doc.setFont('helvetica', 'bold')
-  doc.text('DÉTAIL DES PRESTATIONS', margin, yPos)
-  yPos += 10
+  doc.text('DÉTAIL DES PRESTATIONS', margin, currentY)
+  currentY += 8
 
-  if (proforma.project?.services && proforma.project.services.length > 0) {
-    const servicesData = proforma.project.services.map((service: any) => [
+  let tableData: any[] = []
+
+  if (proforma.items && proforma.items.length > 0) {
+    tableData = proforma.items.map((item: any) => [
+      item.name + (item.description ? `\n${item.description}` : ''),
+      item.quantity.toString(),
+      item.unit || 'unité',
+      formatCurrency(item.unitPrice),
+      formatCurrency(item.totalPrice)
+    ])
+  } else if (proforma.project?.services && proforma.project.services.length > 0) {
+    tableData = proforma.project.services.map((service: any) => [
       service.name + (service.description ? `\n${service.description}` : ''),
-      service.quantity?.toString() || '1',
+      (service.quantity || 1).toString(),
       service.unit || 'forfait',
       formatCurrency(service.amount),
       formatCurrency((service.amount || 0) * (service.quantity || 1))
     ])
-
-    autoTable(doc, {
-      startY: yPos,
-      head: [['Description', 'Qté', 'Unité', 'Prix unitaire', 'Total']],
-      body: servicesData,
-      headStyles: { 
-        fillColor: colors.secondary,
-        textColor: colors.white,
-        fontSize: 10,
-        fontStyle: 'bold',
-        cellPadding: { top: 8, bottom: 8, left: 8, right: 8 }
-      },
-      bodyStyles: { 
-        fontSize: 9,
-        cellPadding: { top: 6, bottom: 6, left: 8, right: 8 }
-      },
-      columnStyles: {
-        0: { cellWidth: 85 },
-        1: { cellWidth: 20, halign: 'center' },
-        2: { cellWidth: 25, halign: 'center' },
-        3: { cellWidth: 35, halign: 'right' },
-        4: { cellWidth: 35, halign: 'right', fontStyle: 'bold', fillColor: colors.light }
-      },
-      margin: { left: margin, right: margin }
-    })
   } else {
-    // Projet simple
-    const projectData = [[
+    tableData = [[
       proforma.project ? `Projet: ${proforma.project.name}` : 'Prestation',
       '1',
       'forfait',
       formatCurrency(proforma.amount),
       formatCurrency(proforma.amount)
     ]]
-
-    autoTable(doc, {
-      startY: yPos,
-      head: [['Description', 'Qté', 'Unité', 'Prix unitaire', 'Total']],
-      body: projectData,
-      headStyles: { 
-        fillColor: colors.secondary,
-        textColor: colors.white,
-        fontSize: 10,
-        fontStyle: 'bold',
-        cellPadding: { top: 8, bottom: 8, left: 8, right: 8 }
-      },
-      bodyStyles: { 
-        fontSize: 10,
-        cellPadding: { top: 8, bottom: 8, left: 8, right: 8 }
-      },
-      columnStyles: {
-        0: { cellWidth: 85 },
-        1: { cellWidth: 20, halign: 'center' },
-        2: { cellWidth: 25, halign: 'center' },
-        3: { cellWidth: 35, halign: 'right' },
-        4: { cellWidth: 35, halign: 'right', fontStyle: 'bold', fillColor: colors.light }
-      },
-      margin: { left: margin, right: margin }
-    })
   }
 
-  yPos = (doc as any).lastAutoTable.finalY + 15
+  autoTable(doc, {
+    startY: currentY,
+    head: [['Description', 'Qté', 'Unité', 'Prix unitaire', 'Total']],
+    body: tableData,
+    headStyles: { 
+      fillColor: [71, 85, 105],
+      textColor: [255, 255, 255],
+      fontSize: 10,
+      fontStyle: 'bold',
+      cellPadding: { top: 6, bottom: 6, left: 4, right: 4 }
+    },
+    bodyStyles: { 
+      fontSize: 9,
+      cellPadding: { top: 5, bottom: 5, left: 4, right: 4 }
+    },
+    alternateRowStyles: { fillColor: [249, 250, 251] },
+    columnStyles: {
+      0: { cellWidth: 70 },
+      1: { cellWidth: 15, halign: 'center' },
+      2: { cellWidth: 20, halign: 'center' },
+      3: { cellWidth: 40, halign: 'right' },
+      4: { cellWidth: 40, halign: 'right', fontStyle: 'bold' }
+    },
+    margin: { left: margin, right: margin },
+    theme: 'grid'
+  })
 
-  // Total moderne avec design élégant
-  const totalBoxWidth = 80
+  currentY = (doc as any).lastAutoTable.finalY + 15
+
+  // Total
+  checkPageBreak(25)
+  
+  const totalBoxWidth = 70
   const totalBoxX = pageWidth - margin - totalBoxWidth
-  
-  // Fond du total
-  doc.setFillColor(...colors.primary)
-  doc.roundedRect(totalBoxX, yPos, totalBoxWidth, 25, 3, 3, 'F')
-  
-  // Texte total
-  doc.setTextColor(...colors.white)
-  doc.setFontSize(12)
+
+  doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2])
+  doc.roundedRect(totalBoxX, currentY, totalBoxWidth, 20, 2, 2, 'F')
+
+  doc.setTextColor(whiteColor[0], whiteColor[1], whiteColor[2])
+  doc.setFontSize(10)
   doc.setFont('helvetica', 'bold')
-  doc.text('TOTAL TTC', totalBoxX + 5, yPos + 10)
-  
-  doc.setFontSize(16)
-  doc.text(formatCurrency(proforma.amount), totalBoxX + 5, yPos + 20)
+  doc.text('TOTAL TTC', totalBoxX + 5, currentY + 8)
 
-  yPos += 35
+  doc.setFontSize(14)
+  doc.text(formatCurrency(proforma.amount), totalBoxX + 5, currentY + 16)
 
-  // Notes si présentes
+  currentY += 30
+
+  // Notes
   if (proforma.notes) {
-    doc.setTextColor(...colors.text)
-    doc.setFontSize(12)
+    checkPageBreak(20)
+    
+    doc.setTextColor(textColor[0], textColor[1], textColor[2])
+    doc.setFontSize(11)
     doc.setFont('helvetica', 'bold')
-    doc.text('NOTES', margin, yPos)
-    yPos += 8
+    doc.text('NOTES', margin, currentY)
+    currentY += 6
 
     doc.setFont('helvetica', 'normal')
-    doc.setFontSize(10)
-    doc.setTextColor(...colors.muted)
+    doc.setFontSize(9)
+    doc.setTextColor(mutedColor[0], mutedColor[1], mutedColor[2])
     const notesLines = doc.splitTextToSize(proforma.notes, pageWidth - 2 * margin)
-    doc.text(notesLines, margin, yPos)
-    yPos += notesLines.length * 5 + 10
+    if (Array.isArray(notesLines)) {
+      notesLines.forEach((line: string) => {
+        doc.text(line, margin, currentY)
+        currentY += 4
+      })
+    } else {
+      doc.text(notesLines, margin, currentY)
+      currentY += 4
+    }
+    currentY += 8
   }
 
-  // Encadré de validité - Badge moderne
-  yPos += 10
-  doc.setFillColor(240, 253, 244) // green-50
-  doc.rect(margin, yPos - 5, pageWidth - 2 * margin, 25, 'F')
+  // Informations de validité
+  checkPageBreak(20)
   
-  doc.setTextColor(...colors.accent)
-  doc.setFontSize(12)
-  doc.setFont('helvetica', 'bold')
-  doc.text('⏰ VALIDITÉ DU DEVIS', margin + 5, yPos + 5)
+  doc.setFillColor(240, 253, 244)
+  doc.rect(margin, currentY - 3, pageWidth - 2 * margin, 18, 'F')
   
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(10)
-  doc.setTextColor(...colors.muted)
-  doc.text(getValidityText(), margin + 5, yPos + 15)
-  
-  yPos += 35
-
-  // Conditions générales
-  doc.setTextColor(...colors.text)
+  doc.setTextColor(accentColor[0], accentColor[1], accentColor[2])
   doc.setFontSize(10)
   doc.setFont('helvetica', 'bold')
-  doc.text('CONDITIONS :', margin, yPos)
-  yPos += 6
-
+  doc.text('⏰ VALIDITÉ DU DEVIS', margin + 3, currentY + 4)
+  
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(9)
-  doc.setTextColor(...colors.muted)
+  doc.setFontSize(8)
+  doc.setTextColor(mutedColor[0], mutedColor[1], mutedColor[2])
+  doc.text(getValidityText(proforma), margin + 3, currentY + 10)
+  
+  currentY += 22
+
+  // Conditions
+  checkPageBreak(30)
+  
+  doc.setTextColor(textColor[0], textColor[1], textColor[2])
+  doc.setFontSize(10)
+  doc.setFont('helvetica', 'bold')
+  doc.text('CONDITIONS :', margin, currentY)
+  currentY += 6
+  
+  doc.setFontSize(8)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(mutedColor[0], mutedColor[1], mutedColor[2])
   const conditions = [
     '• Ce devis devient un contrat dès acceptation et signature.',
     '• Les travaux débuteront après réception de l\'accord écrit.',
@@ -387,28 +424,62 @@ function generateModernProformaPDF(proforma: any, user: any, companySettings: an
   ]
   
   conditions.forEach(condition => {
-    doc.text(condition, margin, yPos)
-    yPos += 5
+    doc.text(condition, margin, currentY)
+    currentY += 4
   })
+  
+  currentY += 10
 
-  // Pied de page moderne
-  const pageHeight = doc.internal.pageSize.height
-  doc.setDrawColor(...colors.light)
-  doc.line(margin, pageHeight - 25, pageWidth - margin, pageHeight - 25)
+  // Section signatures
+  checkPageBreak(40)
+  
+  doc.setTextColor(textColor[0], textColor[1], textColor[2])
+  doc.setFontSize(10)
+  doc.setFont('helvetica', 'bold')
+  doc.text('SIGNATURES :', margin, currentY)
+  currentY += 8
+  
+  // Signature client
+  doc.setFontSize(9)
+  doc.setFont('helvetica', 'bold')
+  doc.text('Bon pour accord - Signature client :', margin, currentY)
+  
+  // Ligne pour signature client
+  doc.setDrawColor(lightColor[0], lightColor[1], lightColor[2])
+  doc.line(margin, currentY + 15, margin + 80, currentY + 15)
+  
+  // Signature prestataire
+  const prestataireX = pageWidth - margin - 80
+  doc.text('Le prestataire :', prestataireX, currentY)
+  
+  if (user.signature) {
+    try {
+      // Ajouter la signature numérique
+      doc.addImage(user.signature, 'PNG', prestataireX, currentY + 3, 60, 15)
+    } catch (error) {
+      console.error('Erreur lors de l\'ajout de la signature:', error)
+      // Fallback: ligne pour signature manuelle
+      doc.line(prestataireX, currentY + 15, prestataireX + 80, currentY + 15)
+    }
+  } else {
+    // Ligne pour signature manuelle si pas de signature numérique
+    doc.line(prestataireX, currentY + 15, prestataireX + 80, currentY + 15)
+  }
+  
+  currentY += 25
+
+  // Pied de page
+  const footerY = pageHeight - 15
+  
+  doc.setDrawColor(lightColor[0], lightColor[1], lightColor[2])
+  doc.line(margin, footerY, pageWidth - margin, footerY)
   
   doc.setFontSize(8)
-  doc.setTextColor(...colors.muted)
+  doc.setTextColor(mutedColor[0], mutedColor[1], mutedColor[2])
   doc.setFont('helvetica', 'normal')
   
   const footerText = `Devis généré le ${formatDate(new Date())} par REV - Gestion Freelance`
-  doc.text(footerText, margin, pageHeight - 15)
-  
-  // Signature
-  doc.setTextColor(...colors.text)
-  doc.setFontSize(10)
-  doc.setFont('helvetica', 'bold')
-  doc.text('Bon pour accord :', pageWidth - margin - 60, pageHeight - 20)
-  doc.text('Signature client :', pageWidth - margin - 60, pageHeight - 12)
+  doc.text(footerText, margin, footerY + 8)
 
   return doc.output('arraybuffer')
 } 

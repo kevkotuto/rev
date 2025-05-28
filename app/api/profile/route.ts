@@ -41,6 +41,10 @@ export async function GET(request: NextRequest) {
       smtpPort: user.smtpPort,
       smtpUser: user.smtpUser,
       smtpFrom: user.smtpFrom,
+      signature: (user as any).signature,
+      waveApiKey: user.waveApiKey,
+      waveWebhookUrl: user.waveWebhookUrl,
+      waveWebhookSecret: user.waveWebhookSecret,
       hasWaveApiKey: !!user.waveApiKey,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
@@ -74,10 +78,11 @@ export async function PUT(request: NextRequest) {
       smtpPassword,
       waveApiKey,
       waveWebhookUrl,
+      waveWebhookSecret,
       ...profileData
     } = body
 
-    // Valider les données de profil de base
+    // Valider les données de profil de base (incluant signature)
     const validatedProfileData = userProfileSchema.parse(profileData)
 
     // Préparer les données à mettre à jour
@@ -85,15 +90,20 @@ export async function PUT(request: NextRequest) {
       ...validatedProfileData
     }
 
-    // Ajouter les données sensibles si fournies
-    if (smtpPassword !== undefined) {
+    // Ajouter les données sensibles si fournies (ne pas écraser si undefined)
+    if (smtpPassword !== undefined && smtpPassword !== "") {
       updateData.smtpPassword = smtpPassword
     }
+    
+    // Pour les champs Wave, on les met à jour seulement s'ils sont fournis
     if (waveApiKey !== undefined) {
-      updateData.waveApiKey = waveApiKey
+      updateData.waveApiKey = waveApiKey || null
     }
     if (waveWebhookUrl !== undefined) {
-      updateData.waveWebhookUrl = waveWebhookUrl
+      updateData.waveWebhookUrl = waveWebhookUrl || null
+    }
+    if (waveWebhookSecret !== undefined) {
+      updateData.waveWebhookSecret = waveWebhookSecret || null
     }
 
     const updatedUser = await prisma.user.update({

@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Separator } from "@/components/ui/separator"
-import { User, Mail, Building, MapPin, Phone, Key, CreditCard, Send, Zap } from "lucide-react"
+import { SignatureCanvas } from "@/components/ui/signature-canvas"
+import { User, Mail, Building, MapPin, Phone, Key, CreditCard, Send, Zap, PenTool } from "lucide-react"
 import { toast } from "sonner"
 import {
   Dialog,
@@ -34,6 +35,7 @@ interface UserProfile {
   waveApiKey?: string
   waveWebhookUrl?: string
   waveWebhookSecret?: string
+  signature?: string
 }
 
 export default function ProfilePage() {
@@ -60,7 +62,8 @@ export default function ProfilePage() {
     smtpFrom: "",
     waveApiKey: "",
     waveWebhookUrl: "",
-    waveWebhookSecret: ""
+    waveWebhookSecret: "",
+    signature: ""
   })
 
   useEffect(() => {
@@ -87,7 +90,8 @@ export default function ProfilePage() {
           smtpFrom: data.smtpFrom || "",
           waveApiKey: data.waveApiKey || "",
           waveWebhookUrl: data.waveWebhookUrl || "",
-          waveWebhookSecret: data.waveWebhookSecret || ""
+          waveWebhookSecret: data.waveWebhookSecret || "",
+          signature: data.signature || ""
         })
       }
     } catch (error) {
@@ -104,7 +108,11 @@ export default function ProfilePage() {
       const updateData = {
         ...formData,
         smtpPort: parseInt(formData.smtpPort) || 587,
-        smtpPassword: formData.smtpPassword || undefined
+        smtpPassword: formData.smtpPassword || undefined,
+        // Ne pas envoyer les champs Wave vides pour éviter de les écraser
+        waveApiKey: formData.waveApiKey || undefined,
+        waveWebhookUrl: formData.waveWebhookUrl || undefined,
+        waveWebhookSecret: formData.waveWebhookSecret || undefined
       }
 
       const response = await fetch('/api/profile', {
@@ -577,6 +585,25 @@ export default function ProfilePage() {
               </p>
             </div>
 
+          </CardContent>
+        </Card>
+
+        {/* Signature numérique */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <PenTool className="mr-2 h-5 w-5" />
+              Signature numérique
+            </CardTitle>
+            <CardDescription>
+              Créez votre signature pour l'ajouter automatiquement à vos devis et factures
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <SignatureCanvas
+              currentSignature={formData.signature || undefined}
+              onSignatureChange={(signature) => setFormData({...formData, signature: signature || ""})}
+            />
           </CardContent>
         </Card>
 

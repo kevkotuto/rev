@@ -122,6 +122,7 @@ export const userProfileSchema = z.object({
   smtpPort: z.number().optional(),
   smtpUser: z.string().optional(),
   smtpFrom: z.string().email("Email invalide").optional().or(z.literal("")),
+  signature: z.string().optional(),
 })
 
 // Types

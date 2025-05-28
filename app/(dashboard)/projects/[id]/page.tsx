@@ -32,7 +32,10 @@ import {
   Receipt,
   UserPlus,
   Banknote,
-  X
+  X,
+  ArrowRight,
+  RotateCcw,
+  Mail
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -62,6 +65,7 @@ import { motion } from "motion/react"
 import { toast } from "sonner"
 import { ProjectBudget } from "@/components/project-budget"
 import { ProformaManagement } from "@/components/proforma-management"
+import { PartialInvoiceConversion } from "@/components/partial-invoice-conversion"
 import { ProjectServices } from "@/components/project-services"
 
 interface Project {
@@ -168,8 +172,10 @@ export default function ProjectDetailPage() {
   const [isAdvancePaymentDialogOpen, setIsAdvancePaymentDialogOpen] = useState(false)
 
   const [isConvertDialogOpen, setIsConvertDialogOpen] = useState(false)
+  const [isPartialConvertDialogOpen, setIsPartialConvertDialogOpen] = useState(false)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [selectedProforma, setSelectedProforma] = useState<any>(null)
+  const [partialConvertingProforma, setPartialConvertingProforma] = useState<any>(null)
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
 
   // États pour les formulaires
@@ -343,6 +349,7 @@ export default function ProjectDetailPage() {
         const result = await response.json()
         toast.success(result.message || 'Proforma convertie en facture avec succès')
         setIsConvertDialogOpen(false)
+        setSelectedProforma(null)
         fetchProject()
         
         if (result.paymentLink) {
@@ -356,6 +363,44 @@ export default function ProjectDetailPage() {
     } catch (error) {
       console.error('Erreur:', error)
       toast.error('Erreur lors de la conversion')
+    }
+  }
+
+  const handlePartialConvert = (proforma: any) => {
+    setPartialConvertingProforma(proforma)
+    setIsPartialConvertDialogOpen(true)
+  }
+
+  const handleSendEmail = (invoice: any) => {
+    // Rediriger vers la page de détail de la facture pour l'envoi d'email
+    window.location.href = `/invoices/${invoice.id}`
+  }
+
+  const handleDownloadPDF = async (invoice: any) => {
+    try {
+      const endpoint = invoice.type === 'PROFORMA' 
+        ? `/api/proformas/${invoice.id}/pdf`
+        : `/api/invoices/${invoice.id}/pdf`
+      
+      const response = await fetch(endpoint)
+      
+      if (response.ok) {
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${invoice.type.toLowerCase()}-${invoice.invoiceNumber}.pdf`
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
+        toast.success('PDF téléchargé avec succès')
+      } else {
+        toast.error('Erreur lors du téléchargement du PDF')
+      }
+    } catch (error) {
+      console.error('Erreur:', error)
+      toast.error('Erreur lors du téléchargement du PDF')
     }
   }
 
@@ -1696,12 +1741,77 @@ export default function ProjectDetailPage() {
           />
           
           <div className="grid gap-6 md:grid-cols-2">
+            {/* Proformas */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-blue-600" />
+                  Proformas
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {proformas.length > 0 ? (
+                  <div className="space-y-3">
+                    {proformas.map((proforma) => (
+                      <div key={proforma.id} className="flex items-center justify-between p-3 border rounded-lg">
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <p className="font-medium">{proforma.invoiceNumber}</p>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm">
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => handleSendEmail(proforma)}>
+                                  <Mail className="mr-2 h-4 w-4" />
+                                  Envoyer par email
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleDownloadPDF(proforma)}>
+                                  <Download className="mr-2 h-4 w-4" />
+                                  Télécharger PDF
+                                </DropdownMenuItem>
+                                
+                                {proforma.status !== 'CONVERTED' && (
+                                  <>
+                                    <DropdownMenuItem onClick={() => {
+                                      setSelectedProforma(proforma)
+                                      setIsConvertDialogOpen(true)
+                                    }}>
+                                      <ArrowRight className="mr-2 h-4 w-4" />
+                                      Convertir en facture
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => handlePartialConvert(proforma)}>
+                                      <RotateCcw className="mr-2 h-4 w-4" />
+                                      Conversion partielle
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                          <div className="flex items-center gap-2 mt-1">
+                            <Badge variant={proforma.status === 'CONVERTED' ? 'default' : 'secondary'}>
+                              {proforma.status === 'CONVERTED' ? 'Convertie' : 'En attente'}
+                            </Badge>
+                            <span className="font-semibold">{formatCurrency(proforma.amount)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground">Aucune proforma générée</p>
+                )}
+              </CardContent>
+            </Card>
 
             {/* Factures */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <FileText className="h-5 w-5" />
+                  <FileText className="h-5 w-5 text-green-600" />
                   Factures
                 </CardTitle>
               </CardHeader>
@@ -1710,13 +1820,38 @@ export default function ProjectDetailPage() {
                   <div className="space-y-3">
                     {invoices.map((invoice) => (
                       <div key={invoice.id} className="flex items-center justify-between p-3 border rounded-lg">
-                        <div>
-                          <p className="font-medium">{invoice.invoiceNumber}</p>
-                          <Badge variant={invoice.status === 'PAID' ? 'default' : 'secondary'}>
-                            {invoice.status}
-                          </Badge>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <p className="font-medium">{invoice.invoiceNumber}</p>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm">
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => handleSendEmail(invoice)}>
+                                  <Mail className="mr-2 h-4 w-4" />
+                                  Envoyer par email
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleDownloadPDF(invoice)}>
+                                  <Download className="mr-2 h-4 w-4" />
+                                  Télécharger PDF
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => window.location.href = `/invoices/${invoice.id}`}>
+                                  <Eye className="mr-2 h-4 w-4" />
+                                  Voir détails
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                          <div className="flex items-center gap-2 mt-1">
+                            <Badge variant={invoice.status === 'PAID' ? 'default' : 'secondary'}>
+                              {invoice.status === 'PAID' ? 'Payée' : invoice.status === 'PENDING' ? 'En attente' : invoice.status}
+                            </Badge>
+                            <span className="font-semibold">{formatCurrency(invoice.amount)}</span>
+                          </div>
                         </div>
-                        <p className="font-semibold">{formatCurrency(invoice.amount)}</p>
                       </div>
                     ))}
                   </div>
@@ -1884,6 +2019,21 @@ export default function ProjectDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Dialog de conversion partielle */}
+      {partialConvertingProforma && (
+        <PartialInvoiceConversion
+          proformaId={partialConvertingProforma.id}
+          isOpen={isPartialConvertDialogOpen}
+          onClose={() => {
+            setIsPartialConvertDialogOpen(false)
+            setPartialConvertingProforma(null)
+          }}
+          onSuccess={() => {
+            fetchProject()
+          }}
+        />
+      )}
     </div>
   )
 } 

@@ -68,6 +68,9 @@ model User {
   waveWebhookUrl String?
   waveWebhookSecret String?
   
+  // Signature numérique
+  signature     String?
+  
   // Préférences de notification
   emailNotifications Boolean @default(true)
   
