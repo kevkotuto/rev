@@ -468,6 +468,10 @@ export default function InvoicesPage() {
 
       if (response.ok) {
         const result = await response.json()
+        
+        // La réponse de l'API contient { checkout: waveData }
+        const waveData = result.checkout || result
+        
         toast.success('Lien de paiement généré avec succès')
         
         // Mettre à jour la facture avec le lien de paiement
@@ -476,15 +480,15 @@ export default function InvoicesPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             ...invoice,
-            paymentLink: result.wave_launch_url
+            paymentLink: waveData.wave_launch_url
           })
         })
         
         fetchInvoices()
         
         // Ouvrir le lien de paiement généré
-        if (result.wave_launch_url) {
-          window.open(result.wave_launch_url, '_blank')
+        if (waveData.wave_launch_url) {
+          window.open(waveData.wave_launch_url, '_blank')
         }
       } else {
         const error = await response.json()
@@ -529,6 +533,10 @@ export default function InvoicesPage() {
 
           if (response.ok) {
             const result = await response.json()
+            
+            // La réponse de l'API contient { checkout: waveData }
+            const waveData = result.checkout || result
+            
             toast.success('Lien de paiement régénéré avec succès')
             
             // Mettre à jour la facture avec le nouveau lien
@@ -537,15 +545,15 @@ export default function InvoicesPage() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 ...invoice,
-                paymentLink: result.wave_launch_url
+                paymentLink: waveData.wave_launch_url
               })
             })
             
             fetchInvoices()
             
             // Optionnel: ouvrir le nouveau lien
-            if (result.wave_launch_url) {
-              window.open(result.wave_launch_url, '_blank')
+            if (waveData.wave_launch_url) {
+              window.open(waveData.wave_launch_url, '_blank')
             }
           } else {
             const error = await response.json()
@@ -623,36 +631,24 @@ export default function InvoicesPage() {
         
         // Sauvegarder le lien créé dans l'état local
         const newPaymentLink = {
-          id: result.id || Date.now().toString(),
+          id: result.checkout?.id || Date.now().toString(),
           amount: formattedAmount,
           currency: paymentLinkForm.currency,
           description: paymentLinkForm.description,
-          wave_launch_url: result.wave_launch_url,
+          wave_launch_url: result.checkout?.wave_launch_url,
           client_reference: paymentLinkForm.client_reference,
           created_at: new Date().toISOString(),
           recipient_info: recipientInfo
         }
         
         setCreatedPaymentLinks(prev => [newPaymentLink, ...prev])
-        setLastCreatedLink(result.wave_launch_url)
+        setLastCreatedLink(result.checkout?.wave_launch_url)
         
         toast.success('Lien de paiement créé avec succès !')
         
-        // Ne pas fermer le dialog immédiatement, montrer d'abord le lien
-        // setShowPaymentLinkDialog(false)
-        // resetPaymentLinkForm()
-        
-        // Copier automatiquement le lien dans le presse-papiers
-        try {
-          await navigator.clipboard.writeText(result.wave_launch_url)
-          toast.success('Lien copié dans le presse-papiers !')
-        } catch (error) {
-          console.log('Impossible de copier automatiquement')
-        }
-        
-        // Proposer d'ouvrir le lien
-        if (window.confirm('Lien créé avec succès ! Voulez-vous l\'ouvrir dans un nouvel onglet ?')) {
-          window.open(result.wave_launch_url, '_blank')
+        // Ouvrir l'URL Wave dans un nouvel onglet (comme dans wave-transactions)
+        if (result.checkout?.wave_launch_url) {
+          window.open(result.checkout.wave_launch_url, '_blank')
         }
         
       } else {

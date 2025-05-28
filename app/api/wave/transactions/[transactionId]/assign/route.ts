@@ -63,6 +63,14 @@ export async function POST(
     let localRecord = null
 
     if (validatedData.type === "revenue") {
+      // Récupérer les informations du client si un clientId est fourni
+      let clientInfo = null
+      if (validatedData.clientId) {
+        clientInfo = await prisma.client.findUnique({
+          where: { id: validatedData.clientId }
+        })
+      }
+
       // Créer une facture ou un revenu
       localRecord = await prisma.invoice.create({
         data: {
@@ -72,7 +80,11 @@ export async function POST(
           notes: validatedData.notes,
           paidDate: new Date(validatedData.waveTransactionData.timestamp),
           userId: session.user.id,
-          ...(validatedData.clientId && { clientId: validatedData.clientId }),
+          // Utiliser les informations client directement dans la facture
+          clientName: clientInfo?.name || validatedData.waveTransactionData.counterparty_name,
+          clientEmail: clientInfo?.email,
+          clientPhone: clientInfo?.phone || validatedData.waveTransactionData.counterparty_mobile,
+          clientAddress: clientInfo?.address,
           ...(validatedData.projectId && { projectId: validatedData.projectId })
         }
       })
