@@ -38,7 +38,7 @@ function PaymentSuccessContent() {
         setLoading(true)
         
         // Récupérer les paramètres de l'URL
-        const invoiceId = searchParams.get('invoice_id')
+        const invoiceId = searchParams.get('invoice_id') || searchParams.get('invoice')
         const transactionId = searchParams.get('transaction_id')
         const clientReference = searchParams.get('client_reference')
         const amount = searchParams.get('amount')

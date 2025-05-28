@@ -199,11 +199,18 @@ async function handleCheckoutCompleted(data: any) {
   if (!invoice && data.client_reference) {
     invoice = await prisma.invoice.findFirst({
       where: {
-        id: data.client_reference
+        OR: [
+          { id: data.client_reference },
+          { invoiceNumber: data.client_reference.split('-')[0] } // Enlever le timestamp s'il y en a un
+        ]
       },
       include: {
         user: true,
-        project: true
+        project: {
+          include: {
+            client: true
+          }
+        }
       }
     })
   }
@@ -224,7 +231,40 @@ async function handleCheckoutCompleted(data: any) {
     }
   })
 
-  // 5. Créer une notification
+  // 5. Créer ou mettre à jour l'assignation Wave
+  await prisma.waveTransactionAssignment.upsert({
+    where: {
+      userId_transactionId: {
+        userId: invoice.userId,
+        transactionId: data.transaction_id || data.id
+      }
+    },
+    update: {
+      invoiceId: invoice.id,
+      clientId: invoice.project?.clientId,
+      projectId: invoice.project?.id,
+      description: `Paiement facture ${invoice.invoiceNumber}`,
+      amount: parseFloat(data.amount || '0'),
+      currency: data.currency || 'XOF',
+      timestamp: data.when_completed ? new Date(data.when_completed) : new Date(),
+      waveData: data
+    },
+    create: {
+      transactionId: data.transaction_id || data.id,
+      type: 'revenue',
+      description: `Paiement facture ${invoice.invoiceNumber}`,
+      amount: parseFloat(data.amount || '0'),
+      currency: data.currency || 'XOF',
+      timestamp: data.when_completed ? new Date(data.when_completed) : new Date(),
+      userId: invoice.userId,
+      invoiceId: invoice.id,
+      clientId: invoice.project?.clientId,
+      projectId: invoice.project?.id,
+      waveData: data
+    }
+  })
+
+  // 6. Créer une notification
   await createNotification({
     userId: invoice.userId,
     title: "Paiement reçu !",

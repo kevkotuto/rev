@@ -54,7 +54,8 @@ import {
   Link,
   CreditCard,
   ArrowRight,
-  RotateCcw
+  RotateCcw,
+  MessageCircle
 } from "lucide-react"
 import { toast } from "sonner"
 import { formatCurrency, formatDate } from "@/lib/format"
@@ -71,6 +72,7 @@ interface Invoice {
   dueDate?: string
   paidDate?: string
   paymentLink?: string
+  waveCheckoutId?: string
   notes?: string
   clientName?: string
   clientEmail?: string
@@ -87,20 +89,6 @@ interface Invoice {
   }
   createdAt: string
   updatedAt: string
-}
-
-interface InvoiceFormData {
-  type: "INVOICE" | "PROFORMA"
-  amount: number
-  dueDate?: string
-  paidDate?: string
-  notes?: string
-  clientName?: string
-  clientEmail?: string
-  clientAddress?: string
-  clientPhone?: string
-  projectId?: string
-  generatePaymentLink: boolean
 }
 
 interface Project {
@@ -457,8 +445,8 @@ export default function InvoicesPage() {
         body: JSON.stringify({
           amount: invoice.amount.toString(),
           currency: 'XOF',
-          success_url: `${window.location.origin}/payment/success?invoice=${invoiceId}`,
-          error_url: `${window.location.origin}/payment/error?invoice=${invoiceId}`,
+          success_url: `${window.location.origin}/payment/success?invoice=${invoiceId}&amount=${invoice.amount}&currency=XOF`,
+          error_url: `${window.location.origin}/payment/error?invoice=${invoiceId}&amount=${invoice.amount}&currency=XOF`,
           client_reference: invoice.invoiceNumber,
           description: `Paiement facture ${invoice.invoiceNumber}`,
           projectId: invoice.project?.id,
@@ -480,7 +468,8 @@ export default function InvoicesPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             ...invoice,
-            paymentLink: waveData.wave_launch_url
+            paymentLink: waveData.wave_launch_url,
+            waveCheckoutId: waveData.id
           })
         })
         
@@ -522,8 +511,8 @@ export default function InvoicesPage() {
             body: JSON.stringify({
               amount: invoice.amount.toString(),
               currency: 'XOF',
-              success_url: `${window.location.origin}/payment/success?invoice=${invoiceId}`,
-              error_url: `${window.location.origin}/payment/error?invoice=${invoiceId}`,
+              success_url: `${window.location.origin}/payment/success?invoice=${invoiceId}&amount=${invoice.amount}&currency=XOF`,
+              error_url: `${window.location.origin}/payment/error?invoice=${invoiceId}&amount=${invoice.amount}&currency=XOF`,
               client_reference: `${invoice.invoiceNumber}-${Date.now()}`, // Ajouter timestamp pour unicité
               description: `Paiement facture ${invoice.invoiceNumber} (nouveau lien)`,
               projectId: invoice.project?.id,
@@ -545,7 +534,8 @@ export default function InvoicesPage() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 ...invoice,
-                paymentLink: waveData.wave_launch_url
+                paymentLink: waveData.wave_launch_url,
+                waveCheckoutId: waveData.id
               })
             })
             
@@ -574,6 +564,51 @@ export default function InvoicesPage() {
     } catch (error) {
       toast.error('Erreur lors de la copie du lien')
     }
+  }
+
+  const sendViaWhatsApp = (paymentLink: string, invoice: Invoice) => {
+    const clientPhone = invoice.clientPhone || invoice.project?.client?.email // Fallback sur email si pas de téléphone
+    const clientName = invoice.clientName || invoice.project?.client?.name || 'Cher client'
+    
+    const message = `Bonjour ${clientName},
+
+Voici le lien de paiement pour votre facture ${invoice.invoiceNumber} d'un montant de ${formatCurrency(invoice.amount)} :
+
+${paymentLink}
+
+Merci de procéder au paiement via Wave CI.
+
+Cordialement`
+
+    const encodedMessage = encodeURIComponent(message)
+    const whatsappUrl = clientPhone 
+      ? `https://wa.me/${clientPhone.replace(/[^0-9]/g, '')}?text=${encodedMessage}`
+      : `https://wa.me/?text=${encodedMessage}`
+    
+    window.open(whatsappUrl, '_blank')
+    toast.success('Message WhatsApp ouvert')
+  }
+
+  const sendViaEmail = (paymentLink: string, invoice: Invoice) => {
+    const clientEmail = invoice.clientEmail || invoice.project?.client?.email
+    const clientName = invoice.clientName || invoice.project?.client?.name || 'Cher client'
+    
+    const subject = `Facture ${invoice.invoiceNumber} - Lien de paiement`
+    const body = `Bonjour ${clientName},
+
+Veuillez trouver ci-dessous le lien de paiement pour votre facture ${invoice.invoiceNumber} d'un montant de ${formatCurrency(invoice.amount)} :
+
+${paymentLink}
+
+Vous pouvez régler cette facture en toute sécurité via Wave CI en cliquant sur le lien ci-dessus.
+
+En cas de question, n'hésitez pas à nous contacter.
+
+Cordialement`
+
+    const mailtoUrl = `mailto:${clientEmail || ''}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+    window.location.href = mailtoUrl
+    toast.success('Email de paiement ouvert')
   }
 
   const handleCreatePaymentLink = async () => {
@@ -1132,6 +1167,14 @@ export default function InvoicesPage() {
                             <DropdownMenuItem onClick={() => copyPaymentLink(invoice.paymentLink!)}>
                               <Copy className="mr-2 h-4 w-4" />
                               Copier lien de paiement
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => sendViaWhatsApp(invoice.paymentLink!, invoice)}>
+                              <MessageCircle className="mr-2 h-4 w-4" />
+                              Envoyer via WhatsApp
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => sendViaEmail(invoice.paymentLink!, invoice)}>
+                              <Mail className="mr-2 h-4 w-4" />
+                              Envoyer par email
                             </DropdownMenuItem>
                           </>
                         )}

@@ -13,6 +13,7 @@ const assignmentSchema = z.object({
   clientId: z.string().optional(),
   providerId: z.string().optional(),
   category: z.string().optional(),
+  invoiceId: z.string().optional(),
   waveTransactionData: z.object({
     transaction_id: z.string(),
     amount: z.string(),
@@ -104,31 +105,81 @@ export async function POST(
     let localRecord = null
 
     if (validatedData.type === "revenue") {
-      // Récupérer les informations du client si un clientId est fourni
-      let clientInfo = null
-      if (validatedData.clientId) {
-        clientInfo = await prisma.client.findUnique({
-          where: { id: validatedData.clientId }
+      // Si une facture existante est spécifiée, l'utiliser
+      if (validatedData.invoiceId) {
+        // Vérifier que la facture existe et appartient à l'utilisateur
+        const existingInvoice = await prisma.invoice.findFirst({
+          where: {
+            id: validatedData.invoiceId,
+            userId: session.user.id,
+            status: 'PENDING' // Seulement les factures en attente
+          }
+        })
+
+        if (!existingInvoice) {
+          return NextResponse.json(
+            { message: "Facture non trouvée ou déjà payée" },
+            { status: 404 }
+          )
+        }
+
+        // Vérifier que le montant de la transaction correspond (avec une tolérance de 10%)
+        const transactionAmount = Math.abs(parseFloat(validatedData.waveTransactionData.amount))
+        const invoiceAmount = existingInvoice.amount
+        const tolerance = invoiceAmount * 0.1 // 10% de tolérance
+
+        if (transactionAmount < (invoiceAmount - tolerance) || transactionAmount > (invoiceAmount + tolerance)) {
+          return NextResponse.json(
+            { 
+              message: `Le montant de la transaction (${transactionAmount} XOF) ne correspond pas au montant de la facture (${invoiceAmount} XOF)`,
+              details: {
+                transactionAmount,
+                invoiceAmount,
+                tolerance
+              }
+            },
+            { status: 400 }
+          )
+        }
+
+        // Marquer la facture comme payée
+        localRecord = await prisma.invoice.update({
+          where: { id: validatedData.invoiceId },
+          data: {
+            status: "PAID",
+            paidDate: new Date(validatedData.waveTransactionData.timestamp),
+            notes: existingInvoice.notes 
+              ? `${existingInvoice.notes}\n\nPayé via Wave - Transaction: ${transactionId}`
+              : `Payé via Wave - Transaction: ${transactionId}`
+          }
+        })
+      } else {
+        // Récupérer les informations du client si un clientId est fourni
+        let clientInfo = null
+        if (validatedData.clientId) {
+          clientInfo = await prisma.client.findUnique({
+            where: { id: validatedData.clientId }
+          })
+        }
+
+        // Créer une nouvelle facture
+        localRecord = await prisma.invoice.create({
+          data: {
+            invoiceNumber: `WAVE-${transactionId}`,
+            amount: parseFloat(validatedData.waveTransactionData.amount),
+            status: "PAID",
+            notes: validatedData.notes,
+            paidDate: new Date(validatedData.waveTransactionData.timestamp),
+            userId: session.user.id,
+            // Utiliser les informations client directement dans la facture
+            clientName: clientInfo?.name || validatedData.waveTransactionData.counterparty_name,
+            clientEmail: clientInfo?.email,
+            clientPhone: clientInfo?.phone || validatedData.waveTransactionData.counterparty_mobile,
+            clientAddress: clientInfo?.address,
+            ...(validatedData.projectId && { projectId: validatedData.projectId })
+          }
         })
       }
-
-      // Créer une facture ou un revenu
-      localRecord = await prisma.invoice.create({
-        data: {
-          invoiceNumber: `WAVE-${transactionId}`,
-          amount: parseFloat(validatedData.waveTransactionData.amount),
-          status: "PAID",
-          notes: validatedData.notes,
-          paidDate: new Date(validatedData.waveTransactionData.timestamp),
-          userId: session.user.id,
-          // Utiliser les informations client directement dans la facture
-          clientName: clientInfo?.name || validatedData.waveTransactionData.counterparty_name,
-          clientEmail: clientInfo?.email,
-          clientPhone: clientInfo?.phone || validatedData.waveTransactionData.counterparty_mobile,
-          clientAddress: clientInfo?.address,
-          ...(validatedData.projectId && { projectId: validatedData.projectId })
-        }
-      })
     } else {
       // Créer une dépense
       localRecord = await prisma.expense.create({
@@ -163,7 +214,8 @@ export async function POST(
         ...(validatedData.type === "expense" && localRecord && { expenseId: localRecord.id }),
         ...(validatedData.projectId && { projectId: validatedData.projectId }),
         ...(validatedData.clientId && { clientId: validatedData.clientId }),
-        ...(validatedData.providerId && { providerId: validatedData.providerId })
+        ...(validatedData.providerId && { providerId: validatedData.providerId }),
+        ...(validatedData.invoiceId && { invoiceId: validatedData.invoiceId })
       }
     })
 

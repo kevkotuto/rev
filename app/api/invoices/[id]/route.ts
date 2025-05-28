@@ -66,44 +66,22 @@ export async function PUT(
       )
     }
 
-    const body = await request.json()
-    const validatedData = invoiceSchema.parse(body)
-
     const { id } = await params
+    const body = await request.json()
 
-    // Récupérer la facture existante pour vérifier l'état actuel
-    const existingInvoice = await prisma.invoice.findFirst({
-      where: {
-        id,
-        userId: session.user.id
-      }
-    })
+    // Supprimer les champs qui ne sont pas dans le modèle Prisma
+    const { generatePaymentLink, ...updateData } = body
 
-    if (!existingInvoice) {
-      return NextResponse.json(
-        { message: "Facture non trouvée" },
-        { status: 404 }
-      )
+    // Convertir les dates si elles existent
+    if (updateData.dueDate) {
+      updateData.dueDate = new Date(updateData.dueDate)
     }
-
-    // Traiter les dates correctement
-    const updateData = {
-      ...validatedData,
-      dueDate: validatedData.dueDate ? new Date(validatedData.dueDate) : null,
-      paidDate: validatedData.paidDate ? new Date(validatedData.paidDate) : null,
-    }
-
-    // Gestion du statut en fonction de la date de paiement
-    if (validatedData.paidDate && !existingInvoice.paidDate) {
-      // Une date de paiement est ajoutée -> marquer comme payée
-      (updateData as any).status = 'PAID'
-    } else if (!validatedData.paidDate && existingInvoice.paidDate) {
-      // La date de paiement est supprimée -> remettre en attente
-      (updateData as any).status = 'PENDING'
+    if (updateData.paidDate) {
+      updateData.paidDate = new Date(updateData.paidDate)
     }
 
     // Supprimer les champs qui ne sont pas dans le modèle Prisma
-    const { generatePaymentLink, ...finalData } = updateData
+    const { generatePaymentLink: _, ...finalData } = updateData
 
     const invoice = await prisma.invoice.updateMany({
       where: {

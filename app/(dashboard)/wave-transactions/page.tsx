@@ -91,6 +91,7 @@ interface AssignmentFormData {
   clientId: string
   providerId: string
   category: string
+  invoiceId: string
 }
 
 interface WaveBalance {
@@ -145,7 +146,8 @@ export default function WaveTransactionsPage() {
     projectId: '',
     clientId: '',
     providerId: '',
-    category: 'WAVE_PAYMENT'
+    category: 'WAVE_PAYMENT',
+    invoiceId: ''
   })
 
   // États pour l'envoi d'argent
@@ -179,6 +181,7 @@ export default function WaveTransactionsPage() {
   const [projects, setProjects] = useState<any[]>([])
   const [clients, setClients] = useState<any[]>([])
   const [providers, setProviders] = useState<any[]>([])
+  const [invoices, setInvoices] = useState<any[]>([])
 
   // États pour le suivi des statuts de paiements
   const [paymentStatuses, setPaymentStatuses] = useState<Record<string, string>>({})
@@ -269,15 +272,20 @@ export default function WaveTransactionsPage() {
 
   const fetchSelectData = async () => {
     try {
-      const [projectsRes, clientsRes, providersRes] = await Promise.all([
+      const [projectsRes, clientsRes, providersRes, invoicesRes] = await Promise.all([
         fetch('/api/projects'),
         fetch('/api/clients'),
-        fetch('/api/providers')
+        fetch('/api/providers'),
+        fetch('/api/invoices?status=PENDING') // Seulement les factures en attente
       ])
 
       if (projectsRes.ok) setProjects(await projectsRes.json())
       if (clientsRes.ok) setClients(await clientsRes.json())
       if (providersRes.ok) setProviders(await providersRes.json())
+      if (invoicesRes.ok) {
+        const invoicesData = await invoicesRes.json()
+        setInvoices(invoicesData.filter((inv: any) => inv.status === 'PENDING'))
+      }
     } catch (error) {
       console.error('Erreur lors du chargement des données:', error)
     }
@@ -287,13 +295,20 @@ export default function WaveTransactionsPage() {
     if (!selectedTransaction) return
 
     try {
+      const requestBody = {
+        ...assignmentForm,
+        waveTransactionData: selectedTransaction
+      }
+
+      // Si une facture est sélectionnée, l'ajouter à la requête
+      if (assignmentForm.invoiceId) {
+        requestBody.invoiceId = assignmentForm.invoiceId
+      }
+
       const response = await fetch(`/api/wave/transactions/${selectedTransaction.transaction_id}/assign`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...assignmentForm,
-          waveTransactionData: selectedTransaction
-        })
+        body: JSON.stringify(requestBody)
       })
 
       if (response.ok) {
@@ -301,6 +316,7 @@ export default function WaveTransactionsPage() {
         setIsAssignDialogOpen(false)
         resetAssignmentForm()
         fetchTransactions() // Recharger pour voir l'assignation
+        fetchSelectData() // Recharger les factures pour mettre à jour la liste
       } else {
         const error = await response.json()
         toast.error(error.message || 'Erreur lors de l\'assignation')
@@ -372,7 +388,8 @@ export default function WaveTransactionsPage() {
       projectId: '',
       clientId: '',
       providerId: '',
-      category: suggestedType === 'expense' ? 'WAVE_PAYMENT' : ''
+      category: suggestedType === 'expense' ? 'WAVE_PAYMENT' : '',
+      invoiceId: ''
     })
     
     setIsAssignDialogOpen(true)
@@ -386,7 +403,8 @@ export default function WaveTransactionsPage() {
       projectId: '',
       clientId: '',
       providerId: '',
-      category: 'WAVE_PAYMENT'
+      category: 'WAVE_PAYMENT',
+      invoiceId: ''
     })
     setSelectedTransaction(null)
   }
@@ -1500,22 +1518,49 @@ export default function WaveTransactionsPage() {
                 </div>
 
                 {assignmentForm.type === 'revenue' && (
-                  <div className="space-y-2">
-                    <Label htmlFor="client">Client</Label>
-                    <Select value={assignmentForm.clientId} onValueChange={(value) => setAssignmentForm({...assignmentForm, clientId: value === "none" ? "" : value})}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Sélectionner un client" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Aucun client</SelectItem>
-                        {clients.map((client) => (
-                          <SelectItem key={client.id} value={client.id}>
-                            {client.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="invoice">Assigner à une facture existante (optionnel)</Label>
+                      <Select value={assignmentForm.invoiceId} onValueChange={(value) => setAssignmentForm({...assignmentForm, invoiceId: value === "none" ? "" : value})}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Sélectionner une facture" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Nouvelle assignation</SelectItem>
+                          {invoices.filter(inv => inv.type === 'INVOICE' && parseFloat(selectedTransaction?.amount || '0') > 0 ? Math.abs(parseFloat(selectedTransaction.amount)) <= inv.amount * 1.1 : true).map((invoice) => (
+                            <SelectItem key={invoice.id} value={invoice.id}>
+                              {invoice.invoiceNumber} - {formatCurrency(invoice.amount)} 
+                              {invoice.clientName && ` (${invoice.clientName})`}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {assignmentForm.invoiceId && (
+                        <p className="text-sm text-blue-600">
+                          💡 Cette transaction sera associée à la facture sélectionnée et marquera automatiquement la facture comme payée.
+                        </p>
+                      )}
+                    </div>
+
+                    {!assignmentForm.invoiceId && (
+                      <div className="space-y-2">
+                        <Label htmlFor="client">Client</Label>
+                        <Select value={assignmentForm.clientId} onValueChange={(value) => setAssignmentForm({...assignmentForm, clientId: value === "none" ? "" : value})}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Sélectionner un client" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">Aucun client</SelectItem>
+                            {clients.map((client) => (
+                              <SelectItem key={client.id} value={client.id}>
+                                {client.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {assignmentForm.type === 'expense' && (

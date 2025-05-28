@@ -50,7 +50,7 @@ function PaymentErrorContent() {
         setLoading(true)
         
         // Récupérer les paramètres de l'URL
-        const invoiceId = searchParams.get('invoice_id')
+        const invoiceId = searchParams.get('invoice_id') || searchParams.get('invoice')
         const errorCode = searchParams.get('error_code')
         const errorMessage = searchParams.get('error_message')
         const clientReference = searchParams.get('client_reference')
