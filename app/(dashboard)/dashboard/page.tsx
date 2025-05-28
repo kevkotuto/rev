@@ -45,6 +45,7 @@ import {
 } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import WaveConflictsList from "@/components/wave-conflicts-list"
 
 
 
@@ -1271,6 +1272,25 @@ export default function DashboardPage() {
           </Card>
         </motion.div>
       </div>
+
+      {/* Wave Conflicts */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 1.4 }}
+      >
+        <Card>
+          <CardHeader>
+            <CardTitle>Conflits de transactions</CardTitle>
+            <CardDescription>
+              Liste des transactions suspectes
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <WaveConflictsList />
+          </CardContent>
+        </Card>
+      </motion.div>
 
       {/* Dialog de création de projet */}
       <Dialog open={isCreateProjectDialogOpen} onOpenChange={setIsCreateProjectDialogOpen}>

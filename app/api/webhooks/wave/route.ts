@@ -358,35 +358,122 @@ async function handleMerchantPaymentReceived(data: any) {
   })
 
   for (const user of users) {
-    // Créer une assignation Wave
+    // Assignation automatique intelligente basée sur le numéro de téléphone
+    let autoAssignment = null
+    let conflictData = null
+
+    if (data.sender_mobile) {
+      // Rechercher le numéro dans les clients et prestataires
+      const [matchingClients, matchingProviders] = await Promise.all([
+        prisma.client.findMany({
+          where: {
+            userId: user.id,
+            phone: {
+              contains: data.sender_mobile.replace(/^\+\d{1,3}/, '').replace(/\D/g, '') // Normaliser le numéro
+            }
+          }
+        }),
+        prisma.provider.findMany({
+          where: {
+            userId: user.id,
+            phone: {
+              contains: data.sender_mobile.replace(/^\+\d{1,3}/, '').replace(/\D/g, '') // Normaliser le numéro
+            }
+          }
+        })
+      ])
+
+      // Logique d'assignation automatique
+      if (matchingClients.length === 1 && matchingProviders.length === 0) {
+        // Un seul client correspond - assignation automatique
+        autoAssignment = {
+          type: 'revenue' as const,
+          description: `Paiement marchand reçu de ${matchingClients[0].name}`,
+          clientId: matchingClients[0].id,
+          counterpartyName: matchingClients[0].name
+        }
+      } else if (matchingProviders.length === 1 && matchingClients.length === 0) {
+        // Un seul prestataire correspond - assignation automatique comme remboursement
+        autoAssignment = {
+          type: 'revenue' as const,
+          description: `Remboursement reçu de ${matchingProviders[0].name}`,
+          providerId: matchingProviders[0].id,
+          counterpartyName: matchingProviders[0].name
+        }
+      } else if (matchingClients.length > 0 || matchingProviders.length > 0) {
+        // Conflit - plusieurs correspondances
+        conflictData = {
+          clients: matchingClients,
+          providers: matchingProviders,
+          senderMobile: data.sender_mobile
+        }
+      }
+    }
+
+    // Créer une assignation Wave avec assignation automatique ou données de conflit
+    const assignmentData = {
+      transactionId: data.id,
+      type: autoAssignment?.type || 'revenue',
+      description: autoAssignment?.description || `Paiement marchand reçu de ${data.sender_mobile}`,
+      amount: parseFloat(data.amount),
+      currency: data.currency,
+      timestamp: new Date(),
+      counterpartyMobile: data.sender_mobile,
+      counterpartyName: autoAssignment?.counterpartyName,
+      userId: user.id,
+      waveData: data,
+      ...(autoAssignment?.clientId && { clientId: autoAssignment.clientId }),
+      ...(autoAssignment?.providerId && { providerId: autoAssignment.providerId }),
+      ...(conflictData && { 
+        conflictData: {
+          needsResolution: true,
+          ...conflictData
+        }
+      })
+    }
+
     const assignment = await prisma.waveTransactionAssignment.create({
-      data: {
-        transactionId: data.id,
-        type: 'revenue',
-        description: `Paiement marchand reçu de ${data.sender_mobile}`,
-        amount: parseFloat(data.amount),
-        currency: data.currency,
-        timestamp: new Date(),
-        counterpartyMobile: data.sender_mobile,
-        userId: user.id,
-        waveData: data
+      data: assignmentData,
+      include: {
+        client: true,
+        provider: true
       }
     })
 
+    // Créer une notification adaptée
+    let notificationTitle = "Nouveau paiement marchand Wave"
+    let notificationMessage = `Paiement de ${data.amount} ${data.currency} reçu`
+    let notificationType: "SUCCESS" | "WARNING" | "WAVE_PAYMENT_RECEIVED" = "WAVE_PAYMENT_RECEIVED"
+
+    if (autoAssignment) {
+      notificationTitle = autoAssignment.clientId 
+        ? "Paiement client assigné automatiquement" 
+        : "Remboursement prestataire assigné automatiquement"
+      notificationMessage = `${autoAssignment.description} - ${data.amount} ${data.currency}`
+      notificationType = "SUCCESS"
+    } else if (conflictData) {
+      notificationTitle = "Paiement Wave - Assignation requise"
+      notificationMessage = `Paiement de ${data.amount} ${data.currency} de ${data.sender_mobile} nécessite une assignation manuelle (plusieurs correspondances trouvées)`
+      notificationType = "WARNING"
+    }
+
     await createNotification({
       userId: user.id,
-      title: "Paiement marchand reçu",
-      message: `Nouveau paiement reçu de ${data.sender_mobile}: ${data.amount} ${data.currency}`,
-      type: "WAVE_PAYMENT_RECEIVED",
+      title: notificationTitle,
+      message: notificationMessage,
+      type: notificationType,
       relatedType: "wave_transaction",
       relatedId: assignment.id,
-      actionUrl: "/wave-transactions",
+      actionUrl: autoAssignment ? `/wave-transactions` : `/wave-transactions?conflict=${assignment.id}`,
       metadata: {
         amount: data.amount,
         currency: data.currency,
         senderMobile: data.sender_mobile,
-        merchantId: data.merchant_id,
-        customFields: data.custom_fields
+        autoAssigned: !!autoAssignment,
+        hasConflict: !!conflictData,
+        assignmentId: assignment.id,
+        ...(autoAssignment?.clientId && { clientId: autoAssignment.clientId }),
+        ...(autoAssignment?.providerId && { providerId: autoAssignment.providerId })
       }
     })
   }

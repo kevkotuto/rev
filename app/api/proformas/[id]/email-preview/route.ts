@@ -66,7 +66,7 @@ export async function GET(
     const emailContent = generateInvoiceEmailTemplate(proforma, user)
 
     return NextResponse.json({
-      proforma: {
+      invoice: {
         id: proforma.id,
         invoiceNumber: proforma.invoiceNumber,
         type: proforma.type,

@@ -43,7 +43,8 @@ import {
   Send,
   UserCheck,
   Ban,
-  Phone
+  Phone,
+  StopCircle
 } from "lucide-react"
 import { motion } from "motion/react"
 import { toast } from "sonner"
@@ -179,11 +180,41 @@ export default function WaveTransactionsPage() {
   const [clients, setClients] = useState<any[]>([])
   const [providers, setProviders] = useState<any[]>([])
 
+  // États pour le suivi des statuts de paiements
+  const [paymentStatuses, setPaymentStatuses] = useState<Record<string, string>>({})
+
   useEffect(() => {
     fetchTransactions()
     fetchBalance()
     fetchSelectData()
   }, [selectedDate])
+
+  // Charger les statuts des paiements récents
+  useEffect(() => {
+    const loadRecentPaymentStatuses = async () => {
+      const recentPayments = transactions.filter(transaction => {
+        const amount = parseFloat(transaction.amount)
+        if (amount >= 0) return false // Seulement les paiements sortants
+        
+        const paymentDate = new Date(transaction.timestamp)
+        const now = new Date()
+        const hoursDiff = (now.getTime() - paymentDate.getTime()) / (1000 * 60 * 60)
+        
+        // Charger le statut pour les paiements des dernières 24 heures
+        return hoursDiff <= 24
+      })
+
+      for (const payment of recentPayments) {
+        if (!paymentStatuses[payment.transaction_id]) {
+          await fetchPaymentStatus(payment.transaction_id)
+        }
+      }
+    }
+
+    if (transactions.length > 0) {
+      loadRecentPaymentStatuses()
+    }
+  }, [transactions])
 
   const fetchTransactions = async (cursor?: string) => {
     try {
@@ -465,7 +496,8 @@ export default function WaveTransactionsPage() {
     const transactionType = amount > 0 ? 'revenue' : 'expense'
     const matchesType = typeFilter === "all" || transactionType === typeFilter
 
-    const isAssigned = !!transaction.localAssignment
+    // Une transaction est vraiment assignée seulement si elle a un client ou prestataire
+    const isAssigned = !!(transaction.localAssignment?.client || transaction.localAssignment?.provider)
     const matchesAssignment = assignmentFilter === "all" || 
       (assignmentFilter === "assigned" && isAssigned) ||
       (assignmentFilter === "unassigned" && !isAssigned)
@@ -523,6 +555,107 @@ export default function WaveTransactionsPage() {
     }
   }
 
+  const handleReversePayment = async (transactionId: string, amount: string, timestamp: string, recipientName?: string) => {
+    // Vérifier si le paiement est dans la limite de 3 jours
+    const paymentDate = new Date(timestamp)
+    const now = new Date()
+    const daysDiff = (now.getTime() - paymentDate.getTime()) / (1000 * 60 * 60 * 24)
+    
+    if (daysDiff > 3) {
+      toast.error('Le délai de 3 jours pour annuler ce paiement est dépassé')
+      return
+    }
+
+    const remainingHours = Math.max(0, Math.ceil((3 * 24) - (daysDiff * 24)))
+    const confirmMessage = `Êtes-vous sûr de vouloir annuler ce paiement de ${formatCurrency(Math.abs(parseFloat(amount)))} ?\n\n` +
+                          `Destinataire: ${recipientName || 'Non spécifié'}\n` +
+                          `Temps restant pour l'annulation: ${remainingHours}h\n\n` +
+                          `Cette action est irréversible et remboursera le montant + frais.`
+    
+    if (!confirm(confirmMessage)) return
+
+    try {
+      const response = await fetch(`/api/wave/payout/${transactionId}/reverse`, {
+        method: 'POST'
+      })
+
+      if (response.ok) {
+        toast.success('Paiement annulé avec succès. Le remboursement sera traité.')
+        fetchTransactions()
+        fetchBalance() // Mettre à jour le solde
+      } else {
+        const error = await response.json()
+        
+        // Gestion des erreurs spécifiques Wave
+        let errorMessage = 'Erreur lors de l\'annulation du paiement'
+        switch (error.error_code) {
+          case 'insufficient-funds':
+            errorMessage = 'Le destinataire n\'a pas suffisamment de fonds pour couvrir l\'annulation'
+            break
+          case 'payout-reversal-time-limit-exceeded':
+            errorMessage = 'Le délai de 3 jours pour annuler ce paiement est dépassé'
+            break
+          case 'payout-reversal-account-terminated':
+            errorMessage = 'Le compte du destinataire a été fermé dans le système Wave'
+            break
+          case 'not-found':
+            errorMessage = 'Paiement non trouvé ou déjà annulé'
+            break
+          default:
+            errorMessage = error.message || error.error_message || errorMessage
+        }
+        
+        toast.error(errorMessage)
+      }
+    } catch (error) {
+      console.error('Erreur:', error)
+      toast.error('Erreur lors de l\'annulation du paiement')
+    }
+  }
+
+  const handleCancelPendingPayment = async (transactionId: string, amount: string, recipientName?: string) => {
+    const confirmMessage = `Êtes-vous sûr de vouloir renoncer à ce paiement de ${formatCurrency(Math.abs(parseFloat(amount)))} ?\n\n` +
+                          `Destinataire: ${recipientName || 'Non spécifié'}\n\n` +
+                          `Cette action annulera le paiement en cours de traitement.`
+    
+    if (!confirm(confirmMessage)) return
+
+    try {
+      const response = await fetch(`/api/wave/payout/${transactionId}/cancel`, {
+        method: 'POST'
+      })
+
+      if (response.ok) {
+        toast.success('Paiement annulé avec succès.')
+        fetchTransactions()
+        fetchBalance() // Mettre à jour le solde
+      } else {
+        const error = await response.json()
+        
+        // Gestion des erreurs spécifiques
+        let errorMessage = 'Erreur lors de l\'annulation du paiement'
+        switch (error.error_code) {
+          case 'payout-already-processed':
+            errorMessage = 'Le paiement a déjà été traité et ne peut plus être annulé'
+            break
+          case 'payout-not-cancellable':
+            errorMessage = 'Ce paiement ne peut plus être annulé'
+            break
+          case 'not-found':
+            errorMessage = 'Paiement non trouvé'
+            break
+          default:
+            errorMessage = error.message || error.error_message || errorMessage
+        }
+        
+        toast.error(errorMessage)
+      }
+    } catch (error) {
+      console.error('Erreur:', error)
+      toast.error('Erreur lors de l\'annulation du paiement')
+    }
+  }
+
   const handleCreateCheckout = async () => {
     try {
       const response = await fetch('/api/wave/checkout/sessions', {
@@ -555,6 +688,11 @@ export default function WaveTransactionsPage() {
 
   // Fonctions d'auto-remplissage
   const handleProviderSelect = (providerId: string) => {
+    if (providerId === "none") {
+      setSendMoneyForm(prev => ({ ...prev, providerId: "" }))
+      return
+    }
+
     const provider = providers.find(p => p.id === providerId)
     if (provider) {
       setSendMoneyForm(prev => ({
@@ -568,6 +706,15 @@ export default function WaveTransactionsPage() {
   }
 
   const handleClientSelect = (clientId: string, formType: 'sendMoney' | 'checkout') => {
+    if (clientId === "none") {
+      if (formType === 'sendMoney') {
+        setSendMoneyForm(prev => ({ ...prev, clientId: "" }))
+      } else if (formType === 'checkout') {
+        setCheckoutForm(prev => ({ ...prev, clientId: "" }))
+      }
+      return
+    }
+
     const client = clients.find(c => c.id === clientId)
     if (client) {
       if (formType === 'sendMoney') {
@@ -591,6 +738,15 @@ export default function WaveTransactionsPage() {
   }
 
   const handleProjectSelect = (projectId: string, formType: 'sendMoney' | 'checkout') => {
+    if (projectId === "none") {
+      if (formType === 'sendMoney') {
+        setSendMoneyForm(prev => ({ ...prev, projectId: "" }))
+      } else if (formType === 'checkout') {
+        setCheckoutForm(prev => ({ ...prev, projectId: "" }))
+      }
+      return
+    }
+
     const project = projects.find(p => p.id === projectId)
     if (project) {
       if (formType === 'sendMoney') {
@@ -648,6 +804,87 @@ export default function WaveTransactionsPage() {
     return false
   }
 
+  // Fonction pour vérifier si un paiement peut être annulé
+  const canReversePayment = (transaction: WaveTransaction) => {
+    const amount = parseFloat(transaction.amount)
+    if (amount >= 0) return false // Seulement les paiements sortants (montants négatifs)
+    
+    if (transaction.is_reversal) return false // Déjà une annulation
+    if (isRefundTransaction(transaction)) return false // C'est déjà un remboursement
+    
+    // Vérifier la limite de 3 jours
+    const paymentDate = new Date(transaction.timestamp)
+    const now = new Date()
+    const daysDiff = (now.getTime() - paymentDate.getTime()) / (1000 * 60 * 60 * 24)
+    
+    return daysDiff <= 3
+  }
+
+  // Fonction pour vérifier si un paiement peut être renoncé (en cours)
+  const canCancelPendingPayment = (transaction: WaveTransaction) => {
+    const amount = parseFloat(transaction.amount)
+    if (amount >= 0) return false // Seulement les paiements sortants
+    
+    if (transaction.is_reversal) return false // Déjà une annulation
+    if (isRefundTransaction(transaction)) return false // C'est déjà un remboursement
+    
+    // Vérifier si c'est un paiement récent (moins de 30 minutes) qui pourrait être en cours
+    const paymentDate = new Date(transaction.timestamp)
+    const now = new Date()
+    const minutesDiff = (now.getTime() - paymentDate.getTime()) / (1000 * 60)
+    
+    // Considérer comme potentiellement "en cours" si c'est très récent
+    // et que ce n'est pas explicitement marqué comme réussi ou échoué
+    const isRecent = minutesDiff <= 30
+    const hasProcessingKeywords = transaction.payment_reason?.toLowerCase().includes('traitement') ||
+                                 transaction.payment_reason?.toLowerCase().includes('processing') ||
+                                 transaction.payment_reason?.toLowerCase().includes('en cours')
+    
+    // Si on a le statut en cache, l'utiliser
+    const cachedStatus = paymentStatuses[transaction.transaction_id]
+    if (cachedStatus) {
+      return cachedStatus === 'processing'
+    }
+    
+    // Sinon, utiliser l'heuristique : récent ET pas de mots-clés de succès
+    return isRecent && !transaction.payment_reason?.toLowerCase().includes('réussi') && 
+           !transaction.payment_reason?.toLowerCase().includes('succès') &&
+           !transaction.payment_reason?.toLowerCase().includes('completed')
+  }
+
+  // Fonction pour récupérer le statut d'un paiement
+  const fetchPaymentStatus = async (transactionId: string) => {
+    try {
+      const response = await fetch(`/api/wave/payout/${transactionId}`)
+      if (response.ok) {
+        const data = await response.json()
+        setPaymentStatuses(prev => ({
+          ...prev,
+          [transactionId]: data.status
+        }))
+        return data.status
+      }
+    } catch (error) {
+      console.error('Erreur lors de la récupération du statut:', error)
+    }
+    return null
+  }
+
+  // Fonction pour obtenir le temps restant pour l'annulation
+  const getReverseTimeRemaining = (timestamp: string) => {
+    const paymentDate = new Date(timestamp)
+    const now = new Date()
+    const daysDiff = (now.getTime() - paymentDate.getTime()) / (1000 * 60 * 60 * 24)
+    const remainingHours = Math.max(0, Math.ceil((3 * 24) - (daysDiff * 24)))
+    
+    if (remainingHours > 24) {
+      return `${Math.ceil(remainingHours / 24)}j`
+    } else if (remainingHours > 0) {
+      return `${remainingHours}h`
+    }
+    return 'Expiré'
+  }
+
   // Fonction pour obtenir les actions disponibles pour une transaction
   const getAvailableActions = (transaction: WaveTransaction) => {
     const actions = []
@@ -655,11 +892,25 @@ export default function WaveTransactionsPage() {
     const isRefunded = isTransactionRefunded(transaction.transaction_id)
     const isRefund = isRefundTransaction(transaction)
     
+    // Vérifier s'il y a plusieurs transactions avec le même transaction_id
+    const duplicateTransactions = transactions.filter(t => t.transaction_id === transaction.transaction_id)
+    const hasDuplicates = duplicateTransactions.length > 1
+    
     // Action d'assignation
-    if (!transaction.localAssignment) {
+    // Une transaction peut être assignée manuellement si elle n'a pas d'assignation du tout,
+    // ou si elle a seulement une assignation basique (description seulement) sans client/prestataire
+    const hasAnyAssignment = !!transaction.localAssignment
+    const hasSpecificAssignment = !!(transaction.localAssignment?.client || transaction.localAssignment?.provider)
+    const hasConflict = transaction.localAssignment?.notes === 'CONFLIT_NON_RESOLU' || 
+                       (transaction.localAssignment && 
+                        typeof transaction.localAssignment === 'object' && 
+                        'waveData' in transaction.localAssignment &&
+                        (transaction.localAssignment as any).waveData?.conflict?.needsResolution)
+    
+    if (!hasAnyAssignment || (hasAnyAssignment && !hasSpecificAssignment && !hasConflict)) {
       actions.push({
         type: 'assign',
-        label: 'Assigner',
+        label: hasAnyAssignment ? 'Réassigner' : 'Assigner',
         icon: 'Plus',
         variant: 'default' as const
       })
@@ -672,12 +923,32 @@ export default function WaveTransactionsPage() {
       })
     }
     
-    // Action de remboursement
-    if (amount > 0 && !transaction.is_reversal && !isRefunded && !isRefund) {
+    // Action de remboursement pour les revenus - SEULEMENT si pas de doublons
+    if (amount > 0 && !transaction.is_reversal && !isRefunded && !isRefund && !hasDuplicates) {
       actions.push({
         type: 'refund',
         label: 'Rembourser',
         icon: 'RotateCcw',
+        variant: 'destructive' as const
+      })
+    }
+    
+    // Action de renonciation pour les paiements en cours - SEULEMENT si pas de doublons
+    if (canCancelPendingPayment(transaction) && !hasDuplicates) {
+      actions.push({
+        type: 'cancel_pending',
+        label: 'Renoncer',
+        icon: 'StopCircle',
+        variant: 'destructive' as const
+      })
+    }
+    // Action d'annulation pour les paiements sortants - SEULEMENT si pas de doublons
+    else if (canReversePayment(transaction) && !hasDuplicates) {
+      const timeRemaining = getReverseTimeRemaining(transaction.timestamp)
+      actions.push({
+        type: 'reverse',
+        label: `Annuler (${timeRemaining})`,
+        icon: 'Ban',
         variant: 'destructive' as const
       })
     }
@@ -688,27 +959,52 @@ export default function WaveTransactionsPage() {
   // Fonction pour obtenir le statut d'une transaction
   const getTransactionStatus = (transaction: WaveTransaction) => {
     const amount = parseFloat(transaction.amount)
-    const isRefunded = isTransactionRefunded(transaction.transaction_id)
-    const isRefund = isRefundTransaction(transaction)
     
-    if (transaction.is_reversal) return { label: 'Annulation', color: 'purple' }
-    if (isRefunded) return { label: 'Remboursée', color: 'red' }
-    if (isRefund) return { label: 'Remboursement', color: 'orange' }
-    
-    // Détection spécifique des paiements prestataires
-    if (transaction.localAssignment?.provider || 
-        transaction.payment_reason?.toLowerCase().includes('prestataire') ||
-        transaction.payment_reason?.toLowerCase().includes('provider')) {
-      return { label: 'Paiement prestataire', color: 'blue' }
+    // Vérifier si c'est un remboursement
+    if (isRefundTransaction(transaction)) {
+      return { label: 'Remboursement', color: 'orange' }
     }
     
-    // Détection des paiements clients
+    // Vérifier s'il y a plusieurs transactions avec le même transaction_id
+    const duplicateTransactions = transactions.filter(t => t.transaction_id === transaction.transaction_id)
+    const hasDuplicates = duplicateTransactions.length > 1
+    
+    // Si il y a des doublons, c'est probablement une transaction annulée/remboursée
+    if (hasDuplicates) {
+      if (amount > 0) {
+        return { label: 'Remboursé', color: 'purple' }
+      } else {
+        return { label: 'Annulé', color: 'purple' }
+      }
+    }
+    
+    // Vérifier si un paiement sortant a été refund (méthode existante)
+    if (amount < 0 && isTransactionRefunded(transaction.transaction_id)) {
+      return { label: 'Remboursé', color: 'purple' }
+    }
+    
+    // Vérifier les autres statuts spéciaux
+    if (transaction.localAssignment?.provider ||
+       (transaction.localAssignment?.client && transaction.localAssignment?.project)) {
+      return { label: 'Prestataire assigné', color: 'green' }
+    }
+    
     if (transaction.localAssignment?.client ||
-        transaction.payment_reason?.toLowerCase().includes('client')) {
-      return amount > 0 ? { label: 'Paiement reçu', color: 'green' } : { label: 'Paiement client', color: 'blue' }
+       (transaction.localAssignment?.project && !transaction.localAssignment?.provider)) {
+      return { label: 'Client assigné', color: 'blue' }
     }
     
-    if (transaction.localAssignment) return { label: 'Assignée', color: 'blue' }
+    // Vérifier si le paiement semble être en cours
+    if (canCancelPendingPayment(transaction)) {
+      return { label: 'En attente', color: 'yellow' }
+    }
+    
+    // Transaction avec assignation basique (description seulement) - pas vraiment assignée
+    if (transaction.localAssignment && !transaction.localAssignment.client && !transaction.localAssignment.provider) {
+      if (amount > 0) return { label: 'Reçu (non assigné)', color: 'gray' }
+      return { label: 'Envoyé (non assigné)', color: 'gray' }
+    }
+    
     if (amount > 0) return { label: 'Reçu', color: 'green' }
     return { label: 'Envoyé', color: 'gray' }
   }
@@ -924,223 +1220,387 @@ export default function WaveTransactionsPage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {filteredTransactions.map((transaction, index) => (
-              <motion.div
-                key={`${transaction.transaction_id}-${index}`}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="border rounded-lg p-4 hover:bg-gray-50 transition-colors"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${getTransactionColor(transaction)}`}>
-                      {getTransactionIcon(transaction)}
-                    </div>
-                    
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-medium">{transaction.transaction_id}</span>
-                        {(() => {
-                          const status = getTransactionStatus(transaction)
-                          const colorClasses = {
-                            purple: "bg-purple-50 text-purple-600 border-purple-200",
-                            red: "bg-red-50 text-red-600 border-red-200",
-                            orange: "bg-orange-50 text-orange-600 border-orange-200",
-                            blue: "bg-blue-50 text-blue-600 border-blue-200",
-                            green: "bg-green-50 text-green-600 border-green-200",
-                            gray: "bg-gray-50 text-gray-600 border-gray-200"
-                          }
-                          return (
-                            <Badge variant="outline" className={`text-xs ${colorClasses[status.color as keyof typeof colorClasses]}`}>
-                              {status.label}
-                            </Badge>
-                          )
-                        })()}
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <RefreshCw className="h-6 w-6 animate-spin mr-2" />
+                <span>Chargement des transactions...</span>
+              </div>
+            ) : filteredTransactions.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <CreditCard className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>Aucune transaction trouvée pour cette date</p>
+              </div>
+            ) : (
+              filteredTransactions.map((transaction, index) => {
+                const amount = parseFloat(transaction.amount)
+                const status = getTransactionStatus(transaction)
+                const actions = getAvailableActions(transaction)
+                
+                return (
+                  <motion.div
+                    key={`${transaction.transaction_id}-${index}`}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.02 }}
+                    className="group relative bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-all duration-200 hover:border-gray-300"
+                  >
+                    {/* Header de la transaction */}
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className={`p-2 rounded-full ${getTransactionColor(transaction)}`}>
+                          {getTransactionIcon(transaction)}
+                        </div>
+                        <div>
+                          <div className="font-medium text-gray-900">
+                            {transaction.transaction_id}
+                          </div>
+                          <div className="text-sm text-gray-500">
+                            {formatDateTime(transaction.timestamp)}
+                          </div>
+                        </div>
                       </div>
                       
-                      <div className="text-sm text-muted-foreground">
-                        {transaction.counterparty_name && (
-                          <span>{transaction.counterparty_name}</span>
-                        )}
-                        {transaction.counterparty_mobile && (
-                          <span className="ml-2">({transaction.counterparty_mobile})</span>
-                        )}
-                        {transaction.payment_reason && (
-                          <span className="block">{transaction.payment_reason}</span>
+                      <div className="text-right">
+                        <div className={`text-lg font-bold ${amount > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {amount > 0 ? '+' : ''}{formatCurrency(amount)}
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          {transaction.fee && parseFloat(transaction.fee) > 0 && (
+                            <span>Frais: {formatCurrency(parseFloat(transaction.fee))}</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Informations de la contrepartie */}
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <User className="h-4 w-4 text-gray-400" />
+                        <span className="text-gray-700">
+                          {transaction.counterparty_name || transaction.counterparty_mobile || 'Non spécifié'}
+                        </span>
+                        {transaction.counterparty_mobile && transaction.counterparty_name && (
+                          <span className="text-sm text-gray-500">
+                            ({transaction.counterparty_mobile})
+                          </span>
                         )}
                       </div>
+                      
+                      <Badge 
+                        variant={
+                          status.color === 'green' ? 'default' : 
+                          status.color === 'red' ? 'destructive' : 
+                          status.color === 'yellow' ? 'secondary' :
+                          status.color === 'blue' ? 'outline' :
+                          status.color === 'purple' ? 'secondary' :
+                          'secondary'
+                        }
+                        className="text-xs"
+                      >
+                        {status.label}
+                      </Badge>
+                    </div>
 
-                      {transaction.localAssignment && (
-                        <div className="mt-2 p-2 bg-blue-50 rounded text-sm">
-                          <div className="font-medium text-blue-800">
-                            {transaction.localAssignment.description}
-                          </div>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {transaction.localAssignment.project && (
-                              <Badge variant="secondary" className="text-xs">
-                                <FolderOpen className="w-3 h-3 mr-1" />
-                                {transaction.localAssignment.project.name}
-                              </Badge>
-                            )}
-                            {transaction.localAssignment.client && (
-                              <Badge variant="outline" className="text-xs">
-                                <User className="w-3 h-3 mr-1" />
-                                {transaction.localAssignment.client.name}
-                              </Badge>
-                            )}
-                            {transaction.localAssignment.provider && (
-                              <Badge variant="outline" className="text-xs">
-                                <Users className="w-3 h-3 mr-1" />
-                                {transaction.localAssignment.provider.name}
-                              </Badge>
+                    {/* Raison du paiement */}
+                    {transaction.payment_reason && (
+                      <div className="mb-3 text-sm text-gray-600 bg-gray-50 p-2 rounded">
+                        <strong>Raison:</strong> {transaction.payment_reason}
+                      </div>
+                    )}
+
+                    {/* Référence client */}
+                    {transaction.client_reference && (
+                      <div className="mb-3 text-sm text-gray-600">
+                        <strong>Référence:</strong> {transaction.client_reference}
+                      </div>
+                    )}
+
+                    {/* Détails de l'assignation */}
+                    {transaction.localAssignment && (
+                      <div className="mb-3 p-3 bg-blue-50 border-l-4 border-blue-200 rounded-r">
+                        <div className="flex items-start gap-2">
+                          <CheckCircle className="h-4 w-4 text-blue-600 mt-0.5" />
+                          <div className="flex-1">
+                            <div className="font-medium text-blue-900">
+                              {transaction.localAssignment.description}
+                            </div>
+                            <div className="flex flex-wrap gap-3 mt-1 text-sm text-blue-700">
+                              {transaction.localAssignment.project && (
+                                <div className="flex items-center gap-1">
+                                  <FolderOpen className="h-3 w-3" />
+                                  {transaction.localAssignment.project.name}
+                                </div>
+                              )}
+                              {transaction.localAssignment.client && (
+                                <div className="flex items-center gap-1">
+                                  <User className="h-3 w-3" />
+                                  {transaction.localAssignment.client.name}
+                                </div>
+                              )}
+                              {transaction.localAssignment.provider && (
+                                <div className="flex items-center gap-1">
+                                  <Building className="h-3 w-3" />
+                                  {transaction.localAssignment.provider.name}
+                                </div>
+                              )}
+                            </div>
+                            {transaction.localAssignment.notes && (
+                              <div className="mt-1 text-sm text-gray-600">
+                                <em>{transaction.localAssignment.notes}</em>
+                              </div>
                             )}
                           </div>
                         </div>
-                      )}
-                    </div>
-                  </div>
+                      </div>
+                    )}
 
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <div className={`text-lg font-semibold ${
-                        parseFloat(transaction.amount) > 0 ? 'text-green-600' : 'text-red-600'
-                      }`}>
-                        {parseFloat(transaction.amount) > 0 ? '+' : ''}
-                        {formatCurrency(Math.abs(parseFloat(transaction.amount)))}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        Frais: {formatCurrency(parseFloat(transaction.fee))}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {formatDateTime(transaction.timestamp)}
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col gap-2">
-                      {getAvailableActions(transaction).map((action, actionIndex) => {
-                        const IconComponent = action.icon === 'Plus' ? Plus : 
-                                            action.icon === 'Trash2' ? Trash2 : 
-                                            action.icon === 'RotateCcw' ? RotateCcw : Plus
-                        
-                        const handleClick = () => {
-                          if (action.type === 'assign') {
-                            openAssignDialog(transaction)
-                          } else if (action.type === 'unassign') {
-                            handleUnassignTransaction(transaction.transaction_id)
-                          } else if (action.type === 'refund') {
-                            handleRefundTransaction(transaction.transaction_id, transaction.amount)
-                          }
-                        }
+                    {/* Actions */}
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
+                      {actions.map((action, actionIndex) => {
+                        const IconComponent = action.icon === 'Plus' ? Plus :
+                                            action.icon === 'Trash2' ? Trash2 :
+                                            action.icon === 'RotateCcw' ? RotateCcw :
+                                            action.icon === 'StopCircle' ? StopCircle :
+                                            action.icon === 'Ban' ? Ban : Plus
 
                         return (
                           <Button
-                            key={actionIndex}
+                            key={`${transaction.transaction_id}-${actionIndex}-${action.type}`}
                             size="sm"
                             variant={action.variant}
-                            onClick={handleClick}
+                            onClick={() => {
+                              if (action.type === 'assign') openAssignDialog(transaction)
+                              if (action.type === 'unassign') handleUnassignTransaction(transaction.transaction_id)
+                              if (action.type === 'refund') handleRefundTransaction(transaction.transaction_id, transaction.amount)
+                              if (action.type === 'cancel_pending') handleCancelPendingPayment(transaction.transaction_id, transaction.amount, transaction.counterparty_name)
+                              if (action.type === 'reverse') handleReversePayment(transaction.transaction_id, transaction.amount, transaction.timestamp, transaction.counterparty_name)
+                            }}
+                            className="flex items-center gap-1 transition-all duration-200"
                           >
-                            <IconComponent className="w-4 h-4 mr-1" />
+                            <IconComponent className="h-3 w-3" />
                             {action.label}
                           </Button>
                         )
                       })}
+                      
+                      {/* Bouton de détails */}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          // Ici on pourrait ouvrir un modal de détails
+                          console.log('Détails de la transaction:', transaction)
+                        }}
+                        className="text-gray-500 hover:text-gray-700"
+                      >
+                        <Eye className="h-3 w-3" />
+                      </Button>
                     </div>
-                  </div>
-                </div>
-              </motion.div>
-            ))}
-
-            {filteredTransactions.length === 0 && !loading && (
-              <div className="text-center py-12">
-                <CreditCard className="mx-auto h-12 w-12 text-muted-foreground" />
-                <h3 className="mt-2 text-sm font-semibold">Aucune transaction</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Aucune transaction trouvée pour cette date avec les filtres actuels.
-                </p>
-              </div>
-            )}
-
-            {/* Pagination */}
-            {pageInfo?.has_next_page && (
-              <div className="flex justify-center pt-4">
-                <Button
-                  variant="outline"
-                  onClick={() => fetchTransactions(pageInfo.end_cursor)}
-                  disabled={loading}
-                >
-                  <ChevronRight className="w-4 h-4 mr-2" />
-                  Charger plus
-                </Button>
-              </div>
+                  </motion.div>
+                )
+              })
             )}
           </div>
+
+          {/* Pagination */}
+          {pageInfo?.has_next_page && (
+            <div className="flex justify-center pt-6">
+              <Button
+                onClick={() => fetchTransactions(pageInfo.end_cursor)}
+                disabled={loading}
+                variant="outline"
+                className="flex items-center gap-2"
+              >
+                {loading ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ChevronRight className="h-4 w-4" />
+                )}
+                Charger plus de transactions
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      {/* Dialog d'envoi d'argent */}
-      <Dialog open={isSendMoneyDialogOpen} onOpenChange={setIsSendMoneyDialogOpen}>
-        <DialogContent className="sm:max-w-[600px]">
+      {/* Dialog d'assignation */}
+      <Dialog open={isAssignDialogOpen} onOpenChange={setIsAssignDialogOpen}>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>
-              {sendMoneyForm.type === 'provider_payment' && 'Payer un prestataire'}
-              {sendMoneyForm.type === 'client_refund' && 'Rembourser un client'}
-              {sendMoneyForm.type === 'general_payment' && 'Envoyer de l\'argent'}
-            </DialogTitle>
+            <DialogTitle>Assigner la transaction</DialogTitle>
             <DialogDescription>
-              Envoyez de l'argent via Wave vers un numéro de téléphone
+              Liez cette transaction Wave à votre comptabilité interne
             </DialogDescription>
           </DialogHeader>
+          
+          {selectedTransaction && (
+            <div className="space-y-4">
+              {/* Informations de la transaction */}
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-medium">{selectedTransaction.transaction_id}</div>
+                    <div className="text-sm text-gray-500">
+                      {formatDateTime(selectedTransaction.timestamp)}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className={`font-bold ${parseFloat(selectedTransaction.amount) > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {formatCurrency(parseFloat(selectedTransaction.amount))}
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      {selectedTransaction.counterparty_name || selectedTransaction.counterparty_mobile}
+                    </div>
+                  </div>
+                </div>
+              </div>
 
-          <div className="grid gap-4 py-4">
+              {/* Formulaire d'assignation */}
+              <div className="grid gap-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="type">Type *</Label>
+                    <Select value={assignmentForm.type} onValueChange={(value) => setAssignmentForm({...assignmentForm, type: value as any})}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="revenue">Revenu</SelectItem>
+                        <SelectItem value="expense">Dépense</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="description">Description *</Label>
+                    <Input
+                      id="description"
+                      value={assignmentForm.description}
+                      onChange={(e) => setAssignmentForm({...assignmentForm, description: e.target.value})}
+                      placeholder="Description de la transaction"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="project">Projet</Label>
+                  <Select value={assignmentForm.projectId} onValueChange={(value) => setAssignmentForm({...assignmentForm, projectId: value === "none" ? "" : value})}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Sélectionner un projet" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Aucun projet</SelectItem>
+                      {projects.map((project) => (
+                        <SelectItem key={project.id} value={project.id}>
+                          {project.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {assignmentForm.type === 'revenue' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="client">Client</Label>
+                    <Select value={assignmentForm.clientId} onValueChange={(value) => setAssignmentForm({...assignmentForm, clientId: value === "none" ? "" : value})}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Sélectionner un client" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Aucun client</SelectItem>
+                        {clients.map((client) => (
+                          <SelectItem key={client.id} value={client.id}>
+                            {client.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {assignmentForm.type === 'expense' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="provider">Prestataire</Label>
+                    <Select value={assignmentForm.providerId} onValueChange={(value) => setAssignmentForm({...assignmentForm, providerId: value === "none" ? "" : value})}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Sélectionner un prestataire" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Aucun prestataire</SelectItem>
+                        {providers.map((provider) => (
+                          <SelectItem key={provider.id} value={provider.id}>
+                            {provider.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <Label htmlFor="notes">Notes</Label>
+                  <Textarea
+                    id="notes"
+                    value={assignmentForm.notes}
+                    onChange={(e) => setAssignmentForm({...assignmentForm, notes: e.target.value})}
+                    placeholder="Notes additionnelles"
+                    rows={3}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAssignDialogOpen(false)}>
+              Annuler
+            </Button>
+            <Button onClick={handleAssignTransaction} disabled={!assignmentForm.description}>
+              Assigner
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog d'envoi d'argent */}
+      <Dialog open={isSendMoneyDialogOpen} onOpenChange={setIsSendMoneyDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Envoyer de l'argent</DialogTitle>
+            <DialogDescription>
+              Effectuer un paiement via Wave
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="amount">Montant (XOF)</Label>
-                <div className="relative">
-                  <Input
-                    id="amount"
-                    type="number"
-                    value={sendMoneyForm.receive_amount || ''}
-                    onChange={(e) => setSendMoneyForm({...sendMoneyForm, receive_amount: parseFloat(e.target.value) || 0})}
-                    placeholder="0"
-                    className={sendMoneyForm.receive_amount > 0 ? "border-green-300" : ""}
-                  />
-                  {sendMoneyForm.receive_amount > 0 && (
-                    <div className="absolute right-2 top-2 text-xs text-green-600">
-                      {formatCurrency(sendMoneyForm.receive_amount)}
-                    </div>
-                  )}
-                </div>
-                {sendMoneyForm.receive_amount > 1000000 && (
-                  <p className="text-xs text-orange-600">⚠️ Montant élevé - Vérifiez les limites de votre compte</p>
-                )}
+                <Label htmlFor="amount">Montant *</Label>
+                <Input
+                  id="amount"
+                  type="number"
+                  step="0.01"
+                  value={sendMoneyForm.receive_amount}
+                  onChange={(e) => setSendMoneyForm({...sendMoneyForm, receive_amount: parseFloat(e.target.value) || 0})}
+                  placeholder="0.00"
+                />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="recipient_mobile">Numéro de téléphone</Label>
-                <div className="relative">
-                  <Input
-                    id="recipient_mobile"
-                    value={sendMoneyForm.mobile}
-                    onChange={(e) => setSendMoneyForm({...sendMoneyForm, mobile: e.target.value})}
-                    placeholder="+221761234567"
-                    className={sendMoneyForm.mobile.startsWith('+221') ? "border-green-300" : ""}
-                  />
-                  {sendMoneyForm.mobile && !sendMoneyForm.mobile.startsWith('+221') && (
-                    <div className="absolute right-2 top-2 text-xs text-orange-600">
-                      ⚠️
-                    </div>
-                  )}
-                </div>
-                {sendMoneyForm.mobile && !sendMoneyForm.mobile.startsWith('+221') && (
-                  <p className="text-xs text-orange-600">Format recommandé: +221XXXXXXXXX</p>
-                )}
+                <Label htmlFor="mobile">Numéro de téléphone *</Label>
+                <Input
+                  id="mobile"
+                  value={sendMoneyForm.mobile}
+                  onChange={(e) => setSendMoneyForm({...sendMoneyForm, mobile: e.target.value})}
+                  placeholder="+221xxxxxxxxx"
+                />
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="recipient_name">Nom du destinataire (optionnel)</Label>
+              <Label htmlFor="name">Nom du destinataire</Label>
               <Input
-                id="recipient_name"
+                id="name"
                 value={sendMoneyForm.name}
                 onChange={(e) => setSendMoneyForm({...sendMoneyForm, name: e.target.value})}
                 placeholder="Nom du destinataire"
@@ -1148,34 +1608,26 @@ export default function WaveTransactionsPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="payment_reason">Motif du paiement</Label>
+              <Label htmlFor="reason">Raison du paiement</Label>
               <Input
-                id="payment_reason"
+                id="reason"
                 value={sendMoneyForm.payment_reason}
                 onChange={(e) => setSendMoneyForm({...sendMoneyForm, payment_reason: e.target.value})}
-                placeholder="Motif du paiement..."
+                placeholder="Raison du paiement"
               />
             </div>
 
             {sendMoneyForm.type === 'provider_payment' && (
               <div className="space-y-2">
                 <Label htmlFor="provider">Prestataire</Label>
-                <Select 
-                  value={sendMoneyForm.providerId} 
-                  onValueChange={handleProviderSelect}
-                >
+                <Select value={sendMoneyForm.providerId} onValueChange={handleProviderSelect}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Sélectionner un prestataire..." />
+                    <SelectValue placeholder="Sélectionner un prestataire" />
                   </SelectTrigger>
                   <SelectContent>
-                    {providers.filter(provider => provider.id && provider.id.trim() !== '').map((provider) => (
+                    {providers.map((provider) => (
                       <SelectItem key={provider.id} value={provider.id}>
-                        <div className="flex flex-col">
-                          <span className="font-medium">{provider.name}</span>
-                          {provider.phone && (
-                            <span className="text-xs text-muted-foreground">{provider.phone}</span>
-                          )}
-                        </div>
+                        {provider.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1186,25 +1638,14 @@ export default function WaveTransactionsPage() {
             {sendMoneyForm.type === 'client_refund' && (
               <div className="space-y-2">
                 <Label htmlFor="client">Client</Label>
-                <Select 
-                  value={sendMoneyForm.clientId} 
-                  onValueChange={(value) => handleClientSelect(value, 'sendMoney')}
-                >
+                <Select value={sendMoneyForm.clientId} onValueChange={(value) => handleClientSelect(value, 'sendMoney')}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Sélectionner un client..." />
+                    <SelectValue placeholder="Sélectionner un client" />
                   </SelectTrigger>
                   <SelectContent>
-                    {clients.filter(client => client.id && client.id.trim() !== '').map((client) => (
+                    {clients.map((client) => (
                       <SelectItem key={client.id} value={client.id}>
-                        <div className="flex flex-col">
-                          <span className="font-medium">{client.name}</span>
-                          {client.phone && (
-                            <span className="text-xs text-muted-foreground">{client.phone}</span>
-                          )}
-                          {client.email && (
-                            <span className="text-xs text-muted-foreground">{client.email}</span>
-                          )}
-                        </div>
+                        {client.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1213,30 +1654,16 @@ export default function WaveTransactionsPage() {
             )}
 
             <div className="space-y-2">
-              <Label htmlFor="project">Projet (optionnel)</Label>
-              <Select 
-                value={sendMoneyForm.projectId || "none"} 
-                onValueChange={(value) => {
-                  if (value === "none") {
-                    setSendMoneyForm({...sendMoneyForm, projectId: ""})
-                  } else {
-                    handleProjectSelect(value, 'sendMoney')
-                  }
-                }}
-              >
+              <Label htmlFor="project">Projet</Label>
+              <Select value={sendMoneyForm.projectId} onValueChange={(value) => handleProjectSelect(value, 'sendMoney')}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Sélectionner un projet..." />
+                  <SelectValue placeholder="Sélectionner un projet" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Aucun projet</SelectItem>
-                  {projects.filter(project => project.id && project.id.trim() !== '').map((project) => (
+                  {projects.map((project) => (
                     <SelectItem key={project.id} value={project.id}>
-                      <div className="flex flex-col">
-                        <span className="font-medium">{project.name}</span>
-                        {project.description && (
-                          <span className="text-xs text-muted-foreground">{project.description}</span>
-                        )}
-                      </div>
+                      {project.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1248,224 +1675,40 @@ export default function WaveTransactionsPage() {
             <Button variant="outline" onClick={() => setIsSendMoneyDialogOpen(false)}>
               Annuler
             </Button>
-            <Button 
-              onClick={handleSendMoney}
-              disabled={!sendMoneyForm.receive_amount || !sendMoneyForm.mobile}
-            >
-              <Send className="w-4 h-4 mr-2" />
-              Envoyer {sendMoneyForm.receive_amount ? formatCurrency(sendMoneyForm.receive_amount) : ''}
+            <Button onClick={handleSendMoney} disabled={!sendMoneyForm.receive_amount || !sendMoneyForm.mobile}>
+              Envoyer
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Dialog d'assignation */}
-      <Dialog open={isAssignDialogOpen} onOpenChange={setIsAssignDialogOpen}>
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader>
-            <DialogTitle>Assigner la transaction Wave</DialogTitle>
-            <DialogDescription>
-              Assignez cette transaction à votre comptabilité en créant une facture ou une dépense.
-            </DialogDescription>
-          </DialogHeader>
-
-          {selectedTransaction && (
-            <div className="bg-gray-50 p-4 rounded-lg mb-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">{selectedTransaction.transaction_id}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {selectedTransaction.counterparty_name} • {formatDateTime(selectedTransaction.timestamp)}
-                  </p>
-                </div>
-                <div className={`text-lg font-semibold ${
-                  parseFloat(selectedTransaction.amount) > 0 ? 'text-green-600' : 'text-red-600'
-                }`}>
-                  {parseFloat(selectedTransaction.amount) > 0 ? '+' : ''}
-                  {formatCurrency(Math.abs(parseFloat(selectedTransaction.amount)))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="type">Type de transaction</Label>
-                <Select 
-                  value={assignmentForm.type} 
-                  onValueChange={(value) => setAssignmentForm({...assignmentForm, type: value as any})}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="revenue">Revenu (facture)</SelectItem>
-                    <SelectItem value="expense">Dépense</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {assignmentForm.type === 'expense' && (
-                <div className="space-y-2">
-                  <Label htmlFor="category">Catégorie</Label>
-                  <Select 
-                    value={assignmentForm.category} 
-                    onValueChange={(value) => setAssignmentForm({...assignmentForm, category: value})}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="WAVE_PAYMENT">Paiement Wave</SelectItem>
-                      <SelectItem value="PROVIDER_PAYMENT">Paiement prestataire</SelectItem>
-                      <SelectItem value="HOSTING">Hébergement</SelectItem>
-                      <SelectItem value="SOFTWARE">Logiciels</SelectItem>
-                      <SelectItem value="OTHER">Autre</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
-              <Input
-                id="description"
-                value={assignmentForm.description}
-                onChange={(e) => setAssignmentForm({...assignmentForm, description: e.target.value})}
-                placeholder="Description de la transaction..."
-              />
-            </div>
-
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="project">Projet (optionnel)</Label>
-                <Select 
-                  value={assignmentForm.projectId || "none"} 
-                  onValueChange={(value) => setAssignmentForm({...assignmentForm, projectId: value === "none" ? "" : value})}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Sélectionner..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Aucun projet</SelectItem>
-                    {projects.filter(project => project.id && project.id.trim() !== '').map((project) => (
-                      <SelectItem key={project.id} value={project.id}>
-                        {project.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="client">Client (optionnel)</Label>
-                <Select 
-                  value={assignmentForm.clientId || "none"} 
-                  onValueChange={(value) => setAssignmentForm({...assignmentForm, clientId: value === "none" ? "" : value})}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Sélectionner..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Aucun client</SelectItem>
-                    {clients.filter(client => client.id && client.id.trim() !== '').map((client) => (
-                      <SelectItem key={client.id} value={client.id}>
-                        {client.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="provider">Prestataire (optionnel)</Label>
-                <Select 
-                  value={assignmentForm.providerId || "none"} 
-                  onValueChange={(value) => setAssignmentForm({...assignmentForm, providerId: value === "none" ? "" : value})}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Sélectionner..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Aucun prestataire</SelectItem>
-                    {providers.filter(provider => provider.id && provider.id.trim() !== '').map((provider) => (
-                      <SelectItem key={provider.id} value={provider.id}>
-                        {provider.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="notes">Notes (optionnel)</Label>
-              <Textarea
-                id="notes"
-                value={assignmentForm.notes}
-                onChange={(e) => setAssignmentForm({...assignmentForm, notes: e.target.value})}
-                placeholder="Notes supplémentaires..."
-                rows={3}
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsAssignDialogOpen(false)}>
-              Annuler
-            </Button>
-            <Button 
-              onClick={handleAssignTransaction}
-              disabled={!assignmentForm.description}
-            >
-              Assigner la transaction
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Dialog de création de session checkout */}
+      {/* Dialog de création de checkout */}
       <Dialog open={isCheckoutDialogOpen} onOpenChange={setIsCheckoutDialogOpen}>
-        <DialogContent className="sm:max-w-[600px]">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Créer une session checkout Wave</DialogTitle>
+            <DialogTitle>Créer une session checkout</DialogTitle>
             <DialogDescription>
-              Créez un lien de paiement Wave que vos clients peuvent utiliser pour payer
+              Créer un lien de paiement Wave pour recevoir de l'argent
             </DialogDescription>
           </DialogHeader>
-
-          <div className="grid gap-4 py-4">
+          
+          <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="checkout_amount">Montant (XOF)</Label>
-                <div className="relative">
-                  <Input
-                    id="checkout_amount"
-                    type="number"
-                    value={checkoutForm.amount}
-                    onChange={(e) => setCheckoutForm({...checkoutForm, amount: e.target.value})}
-                    placeholder="1000"
-                    className={parseFloat(checkoutForm.amount) > 0 ? "border-green-300" : ""}
-                  />
-                  {parseFloat(checkoutForm.amount) > 0 && (
-                    <div className="absolute right-2 top-2 text-xs text-green-600">
-                      {formatCurrency(parseFloat(checkoutForm.amount))}
-                    </div>
-                  )}
-                </div>
-                {parseFloat(checkoutForm.amount) > 0 && parseFloat(checkoutForm.amount) < 100 && (
-                  <p className="text-xs text-orange-600">⚠️ Montant très faible</p>
-                )}
+                <Label htmlFor="amount">Montant *</Label>
+                <Input
+                  id="amount"
+                  type="number"
+                  step="0.01"
+                  value={checkoutForm.amount}
+                  onChange={(e) => setCheckoutForm({...checkoutForm, amount: e.target.value})}
+                  placeholder="0.00"
+                />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="checkout_currency">Devise</Label>
-                <Select 
-                  value={checkoutForm.currency} 
-                  onValueChange={(value) => setCheckoutForm({...checkoutForm, currency: value})}
-                >
+                <Label htmlFor="currency">Devise</Label>
+                <Select value={checkoutForm.currency} onValueChange={(value) => setCheckoutForm({...checkoutForm, currency: value})}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -1477,135 +1720,67 @@ export default function WaveTransactionsPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="checkout_description">Description</Label>
+              <Label htmlFor="description">Description</Label>
               <Input
-                id="checkout_description"
+                id="description"
                 value={checkoutForm.description}
                 onChange={(e) => setCheckoutForm({...checkoutForm, description: e.target.value})}
-                placeholder="Description du paiement..."
+                placeholder="Description du paiement"
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="checkout_success_url">URL de succès</Label>
-                <Input
-                  id="checkout_success_url"
-                  value={checkoutForm.success_url}
-                  onChange={(e) => setCheckoutForm({...checkoutForm, success_url: e.target.value})}
-                  placeholder="https://example.com/success"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="checkout_error_url">URL d'erreur</Label>
-                <Input
-                  id="checkout_error_url"
-                  value={checkoutForm.error_url}
-                  onChange={(e) => setCheckoutForm({...checkoutForm, error_url: e.target.value})}
-                  placeholder="https://example.com/error"
-                />
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="client_reference">Référence</Label>
+              <Input
+                id="client_reference"
+                value={checkoutForm.client_reference}
+                onChange={(e) => setCheckoutForm({...checkoutForm, client_reference: e.target.value})}
+                placeholder="Référence unique"
+              />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="checkout_client_reference">Référence client (optionnel)</Label>
-                <Input
-                  id="checkout_client_reference"
-                  value={checkoutForm.client_reference}
-                  onChange={(e) => setCheckoutForm({...checkoutForm, client_reference: e.target.value})}
-                  placeholder="REF-12345"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="checkout_restrict_mobile">Restreindre au mobile (optionnel)</Label>
-                <div className="relative">
-                  <Input
-                    id="checkout_restrict_mobile"
-                    value={checkoutForm.restrict_payer_mobile}
-                    onChange={(e) => setCheckoutForm({...checkoutForm, restrict_payer_mobile: e.target.value})}
-                    placeholder="+221761234567"
-                    className={checkoutForm.restrict_payer_mobile.startsWith('+221') ? "border-green-300" : ""}
-                  />
-                  {checkoutForm.restrict_payer_mobile && !checkoutForm.restrict_payer_mobile.startsWith('+221') && (
-                    <div className="absolute right-2 top-2 text-xs text-orange-600">
-                      ⚠️
-                    </div>
-                  )}
-                </div>
-                {checkoutForm.restrict_payer_mobile && (
-                  <p className="text-xs text-blue-600">🔒 Seul ce numéro pourra effectuer le paiement</p>
-                )}
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="restrict_payer">Numéro autorisé (optionnel)</Label>
+              <Input
+                id="restrict_payer"
+                value={checkoutForm.restrict_payer_mobile}
+                onChange={(e) => setCheckoutForm({...checkoutForm, restrict_payer_mobile: e.target.value})}
+                placeholder="+221xxxxxxxxx"
+              />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="checkout_project">Projet (optionnel)</Label>
-                <Select 
-                  value={checkoutForm.projectId || "none"} 
-                  onValueChange={(value) => {
-                    if (value === "none") {
-                      setCheckoutForm({...checkoutForm, projectId: ""})
-                    } else {
-                      handleProjectSelect(value, 'checkout')
-                    }
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Sélectionner un projet..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Aucun projet</SelectItem>
-                    {projects.filter(project => project.id && project.id.trim() !== '').map((project) => (
-                      <SelectItem key={project.id} value={project.id}>
-                        <div className="flex flex-col">
-                          <span className="font-medium">{project.name}</span>
-                          {project.description && (
-                            <span className="text-xs text-muted-foreground">{project.description}</span>
-                          )}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="client">Client</Label>
+              <Select value={checkoutForm.clientId} onValueChange={(value) => handleClientSelect(value, 'checkout')}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Sélectionner un client" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Aucun client</SelectItem>
+                  {clients.map((client) => (
+                    <SelectItem key={client.id} value={client.id}>
+                      {client.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="checkout_client">Client (optionnel)</Label>
-                <Select 
-                  value={checkoutForm.clientId || "none"} 
-                  onValueChange={(value) => {
-                    if (value === "none") {
-                      setCheckoutForm({...checkoutForm, clientId: ""})
-                    } else {
-                      handleClientSelect(value, 'checkout')
-                    }
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Sélectionner un client..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Aucun client</SelectItem>
-                    {clients.filter(client => client.id && client.id.trim() !== '').map((client) => (
-                      <SelectItem key={client.id} value={client.id}>
-                        <div className="flex flex-col">
-                          <span className="font-medium">{client.name}</span>
-                          {client.phone && (
-                            <span className="text-xs text-muted-foreground">{client.phone}</span>
-                          )}
-                          {client.email && (
-                            <span className="text-xs text-muted-foreground">{client.email}</span>
-                          )}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="project">Projet</Label>
+              <Select value={checkoutForm.projectId} onValueChange={(value) => handleProjectSelect(value, 'checkout')}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Sélectionner un projet" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Aucun projet</SelectItem>
+                  {projects.map((project) => (
+                    <SelectItem key={project.id} value={project.id}>
+                      {project.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
@@ -1613,16 +1788,12 @@ export default function WaveTransactionsPage() {
             <Button variant="outline" onClick={() => setIsCheckoutDialogOpen(false)}>
               Annuler
             </Button>
-            <Button 
-              onClick={handleCreateCheckout}
-              disabled={!checkoutForm.amount || !checkoutForm.success_url || !checkoutForm.error_url}
-            >
-              <CreditCard className="w-4 h-4 mr-2" />
-              Créer session checkout
+            <Button onClick={handleCreateCheckout} disabled={!checkoutForm.amount || !checkoutForm.description}>
+              Créer le checkout
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
   )
-} 
+}

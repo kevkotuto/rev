@@ -72,6 +72,23 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Filtres pour les assignations Wave (utilise timestamp)
+    const waveAssignmentDateFilter: any = {}
+    if (startDate && endDate) {
+      waveAssignmentDateFilter.timestamp = {
+        gte: new Date(startDate),
+        lte: new Date(endDate + 'T23:59:59.999Z')
+      }
+    } else if (startDate) {
+      waveAssignmentDateFilter.timestamp = {
+        gte: new Date(startDate)
+      }
+    } else if (endDate) {
+      waveAssignmentDateFilter.timestamp = {
+        lte: new Date(endDate + 'T23:59:59.999Z')
+      }
+    }
+
     // Statistiques générales
     const [
       totalClients,
@@ -89,7 +106,11 @@ export async function GET(request: NextRequest) {
       totalFiles,
       pendingRevenue,
       recentActivities,
-      projectsWithDates
+      projectsWithDates,
+      // Nouvelles statistiques Wave
+      waveAssignments,
+      waveRevenue,
+      waveExpenses
     ] = await Promise.all([
       // Nombre total de clients
       prisma.client.count({
@@ -253,6 +274,36 @@ export async function GET(request: NextRequest) {
             }
           }
         }
+      }),
+
+      // Nouvelles statistiques Wave
+      prisma.waveTransactionAssignment.count({
+        where: {
+          userId,
+          ...waveAssignmentDateFilter
+        }
+      }),
+
+      prisma.waveTransactionAssignment.aggregate({
+        where: {
+          userId,
+          type: 'revenue',
+          ...waveAssignmentDateFilter
+        },
+        _sum: {
+          amount: true
+        }
+      }),
+
+      prisma.waveTransactionAssignment.aggregate({
+        where: {
+          userId,
+          type: 'expense',
+          ...waveAssignmentDateFilter
+        },
+        _sum: {
+          amount: true
+        }
       })
     ])
 
@@ -356,15 +407,25 @@ export async function GET(request: NextRequest) {
         averageProjectValue: totalProjects > 0 ? projectsWithDates.reduce((sum, p) => sum + p.amount, 0) / totalProjects : 0
       },
       financial: {
-        totalRevenue: totalRevenue._sum.amount || 0,
-        totalExpenses: totalExpenseAmount._sum.amount || 0,
-        netProfit: (totalRevenue._sum.amount || 0) - (totalExpenseAmount._sum.amount || 0),
+        totalRevenue: (totalRevenue._sum.amount || 0) + (waveRevenue._sum.amount || 0),
+        totalExpenses: (totalExpenseAmount._sum.amount || 0) + (waveExpenses._sum.amount || 0),
+        netProfit: ((totalRevenue._sum.amount || 0) + (waveRevenue._sum.amount || 0)) - ((totalExpenseAmount._sum.amount || 0) + (waveExpenses._sum.amount || 0)),
         pendingRevenue: pendingRevenue._sum.amount || 0,
-        revenueByMonth
+        revenueByMonth,
+        // Détail Wave
+        waveRevenue: waveRevenue._sum.amount || 0,
+        waveExpenses: waveExpenses._sum.amount || 0,
+        waveAssignments: waveAssignments
       },
       recentActivities: {
         invoices: recentActivities[0],
         projects: recentActivities[1]
+      },
+      wave: {
+        totalAssignments: waveAssignments,
+        totalRevenue: waveRevenue._sum.amount || 0,
+        totalExpenses: waveExpenses._sum.amount || 0,
+        netAmount: (waveRevenue._sum.amount || 0) - (waveExpenses._sum.amount || 0)
       }
     }
 

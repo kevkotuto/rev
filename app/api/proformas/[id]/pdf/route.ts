@@ -193,7 +193,7 @@ function generateCleanProformaPDF(proforma: any, user: any, companySettings: any
   doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2])
   doc.setFontSize(12)
   doc.setFont('helvetica', 'bold')
-  doc.text('CLIENT', rightColumnX, clientStartY)
+  doc.text('FACTURÉ À', rightColumnX, clientStartY)
 
   let clientY = clientStartY + 8
   doc.setTextColor(textColor[0], textColor[1], textColor[2])
@@ -386,7 +386,7 @@ function generateCleanProformaPDF(proforma: any, user: any, companySettings: any
     currentY += 8
   }
 
-  // Informations de validité
+  // Informations de validité (spécifique aux proformas)
   checkPageBreak(20)
   
   doc.setFillColor(240, 253, 244)
@@ -404,72 +404,62 @@ function generateCleanProformaPDF(proforma: any, user: any, companySettings: any
   
   currentY += 22
 
-  // Conditions
-  checkPageBreak(30)
-  
-  doc.setTextColor(textColor[0], textColor[1], textColor[2])
-  doc.setFontSize(10)
-  doc.setFont('helvetica', 'bold')
-  doc.text('CONDITIONS :', margin, currentY)
-  currentY += 6
-  
-  doc.setFontSize(8)
-  doc.setFont('helvetica', 'normal')
-  doc.setTextColor(mutedColor[0], mutedColor[1], mutedColor[2])
-  const conditions = [
-    '• Ce devis devient un contrat dès acceptation et signature.',
-    '• Les travaux débuteront après réception de l\'accord écrit.',
-    '• Toute modification fera l\'objet d\'un avenant.',
-    '• Paiement selon les conditions convenues.'
-  ]
-  
-  conditions.forEach(condition => {
-    doc.text(condition, margin, currentY)
-    currentY += 4
-  })
-  
-  currentY += 10
-
   // Section signatures
-  checkPageBreak(40)
+  checkPageBreak(50)
   
   doc.setTextColor(textColor[0], textColor[1], textColor[2])
   doc.setFontSize(10)
   doc.setFont('helvetica', 'bold')
   doc.text('SIGNATURES :', margin, currentY)
-  currentY += 8
+  currentY += 10
   
-  // Signature client
+  // Signature client (gauche)
   doc.setFontSize(9)
   doc.setFont('helvetica', 'bold')
   doc.text('Bon pour accord - Signature client :', margin, currentY)
   
   // Ligne pour signature client
   doc.setDrawColor(lightColor[0], lightColor[1], lightColor[2])
-  doc.line(margin, currentY + 15, margin + 80, currentY + 15)
+  doc.line(margin, currentY + 20, margin + 80, currentY + 20)
   
-  // Signature prestataire
+  // Date et nom client sous la ligne
+  doc.setFontSize(8)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(mutedColor[0], mutedColor[1], mutedColor[2])
+  doc.text('Date : ____/____/____', margin, currentY + 26)
+  doc.text(`Nom : ${clientName}`, margin, currentY + 30)
+  
+  // Signature prestataire (droite)
   const prestataireX = pageWidth - margin - 80
+  doc.setTextColor(textColor[0], textColor[1], textColor[2])
+  doc.setFontSize(9)
+  doc.setFont('helvetica', 'bold')
   doc.text('Le prestataire :', prestataireX, currentY)
   
-  if (user.signature) {
+  if (user?.signature) {
     try {
       // Ajouter la signature numérique
-      doc.addImage(user.signature, 'PNG', prestataireX, currentY + 3, 60, 15)
+      doc.addImage(user.signature, 'PNG', prestataireX, currentY + 5, 60, 15)
     } catch (error) {
       console.error('Erreur lors de l\'ajout de la signature:', error)
       // Fallback: ligne pour signature manuelle
-      doc.line(prestataireX, currentY + 15, prestataireX + 80, currentY + 15)
+      doc.line(prestataireX, currentY + 20, prestataireX + 80, currentY + 20)
     }
   } else {
     // Ligne pour signature manuelle si pas de signature numérique
-    doc.line(prestataireX, currentY + 15, prestataireX + 80, currentY + 15)
+    doc.line(prestataireX, currentY + 20, prestataireX + 80, currentY + 20)
   }
   
-  currentY += 25
+  // Nom de l'entreprise sous la signature prestataire
+  doc.setFontSize(8)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(mutedColor[0], mutedColor[1], mutedColor[2])
+  doc.text(companyName, prestataireX, currentY + 30)
+  
+  currentY += 40
 
   // Pied de page
-  const footerY = pageHeight - 15
+  const footerY = pageHeight - 20
   
   doc.setDrawColor(lightColor[0], lightColor[1], lightColor[2])
   doc.line(margin, footerY, pageWidth - margin, footerY)
@@ -478,8 +468,21 @@ function generateCleanProformaPDF(proforma: any, user: any, companySettings: any
   doc.setTextColor(mutedColor[0], mutedColor[1], mutedColor[2])
   doc.setFont('helvetica', 'normal')
   
-  const footerText = `Devis généré le ${formatDate(new Date())} par REV - Gestion Freelance`
+  const footerText = `Document généré le ${formatDate(new Date())} par REV - Gestion Freelance`
   doc.text(footerText, margin, footerY + 8)
+  
+  // Informations bancaires
+  if (companySettings?.bankName || companySettings?.bankAccount) {
+    const bankInfoX = pageWidth - margin - 70
+    doc.text('Informations bancaires:', bankInfoX, footerY + 4)
+    
+    if (companySettings.bankName) {
+      doc.text(`Banque: ${companySettings.bankName}`, bankInfoX, footerY + 8)
+    }
+    if (companySettings.bankAccount) {
+      doc.text(`Compte: ${companySettings.bankAccount}`, bankInfoX, footerY + 12)
+    }
+  }
 
   return doc.output('arraybuffer')
 } 

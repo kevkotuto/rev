@@ -27,7 +27,7 @@ const assignmentSchema = z.object({
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ transactionId: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -39,7 +39,7 @@ export async function POST(
       )
     }
 
-    const { transactionId } = await params
+    const { id: transactionId } = await params
     const body = await request.json()
     const validatedData = assignmentSchema.parse(body)
 
@@ -50,14 +50,55 @@ export async function POST(
           userId: session.user.id,
           transactionId: transactionId
         }
+      },
+      include: {
+        client: true,
+        provider: true,
+        project: true
       }
     })
 
+    // Log pour debug
+    console.log(`[DEBUG] Vérification assignation pour transaction ${transactionId}:`, {
+      existingAssignment: existingAssignment ? {
+        id: existingAssignment.id,
+        type: existingAssignment.type,
+        description: existingAssignment.description,
+        hasClient: !!existingAssignment.client,
+        hasProvider: !!existingAssignment.provider,
+        hasProject: !!existingAssignment.project
+      } : null
+    })
+
     if (existingAssignment) {
-      return NextResponse.json(
-        { message: "Cette transaction est déjà assignée" },
-        { status: 400 }
-      )
+      // Vérifier si c'est une assignation automatique basique qu'on peut remplacer
+      const isBasicAssignment = !existingAssignment.clientId && !existingAssignment.providerId
+      const hasConflict = existingAssignment.waveData && 
+                          (existingAssignment.waveData as any)?.conflict?.needsResolution
+      
+      if (isBasicAssignment && !hasConflict) {
+        // C'est une assignation basique sans client/prestataire, on peut la remplacer
+        console.log(`[DEBUG] Remplacement d'une assignation basique pour ${transactionId}`)
+        
+        // Supprimer l'ancienne assignation basique
+        await prisma.waveTransactionAssignment.delete({
+          where: { id: existingAssignment.id }
+        })
+      } else {
+        return NextResponse.json(
+          { 
+            message: "Cette transaction est déjà assignée", 
+            details: {
+              type: existingAssignment.type,
+              description: existingAssignment.description,
+              hasClient: !!existingAssignment.client,
+              hasProvider: !!existingAssignment.provider,
+              hasConflict: hasConflict
+            }
+          },
+          { status: 400 }
+        )
+      }
     }
 
     let localRecord = null
@@ -173,7 +214,7 @@ export async function POST(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ transactionId: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -185,7 +226,7 @@ export async function DELETE(
       )
     }
 
-    const { transactionId } = await params
+    const { id: transactionId } = await params
 
     // Récupérer l'assignation
     const assignment = await prisma.waveTransactionAssignment.findUnique({
