@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { CheckCircle, ArrowLeft, Download, Eye, ExternalLink } from "lucide-react"
+import { CheckCircle, ArrowLeft, Download, Eye, ExternalLink, Mail } from "lucide-react"
 import { formatCurrency } from "@/lib/format"
 import { toast } from "sonner"
 
@@ -45,26 +45,108 @@ function PaymentSuccessContent() {
         const currency = searchParams.get('currency') || 'XOF'
         
         if (invoiceId) {
-          // Si on a un ID de facture, récupérer les détails
-          const response = await fetch(`/api/invoices/${invoiceId}`)
+          // Si on a un ID de facture, récupérer les détails via la route publique
+          const response = await fetch(`/api/invoices/${invoiceId}/public`)
           if (response.ok) {
             const invoice = await response.json()
-            setPaymentDetails({
-              type: 'invoice_payment',
-              amount: amount || invoice.amount.toString(),
-              currency,
-              invoice: {
-                id: invoice.id,
-                invoiceNumber: invoice.invoiceNumber,
-                type: invoice.type,
-                clientName: invoice.clientName || invoice.project?.client?.name,
-                project: invoice.project ? {
-                  name: invoice.project.name
-                } : undefined
-              },
-              transaction_id: transactionId || undefined,
-              client_reference: clientReference || undefined
-            })
+            
+            // Marquer la facture comme payée si elle ne l'est pas déjà
+            if (invoice.status === 'PENDING' || invoice.status === 'OVERDUE') {
+              try {
+                const markPaidResponse = await fetch(`/api/invoices/${invoiceId}/mark-paid-public`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    paymentMethod: 'WAVE',
+                    paidDate: new Date().toISOString(),
+                    transactionId: transactionId,
+                    amount: amount,
+                    waveCheckoutId: invoice.waveCheckoutId // Pour la sécurité
+                  })
+                })
+                
+                if (markPaidResponse.ok) {
+                  const result = await markPaidResponse.json()
+                  const updatedInvoice = result.invoice
+                  toast.success('Paiement confirmé avec succès')
+                  
+                  // Utiliser la facture mise à jour
+                  setPaymentDetails({
+                    type: 'invoice_payment',
+                    amount: amount || updatedInvoice.amount.toString(),
+                    currency,
+                    invoice: {
+                      id: updatedInvoice.id,
+                      invoiceNumber: updatedInvoice.invoiceNumber,
+                      type: updatedInvoice.type,
+                      clientName: updatedInvoice.clientName || updatedInvoice.project?.client?.name,
+                      project: updatedInvoice.project ? {
+                        name: updatedInvoice.project.name
+                      } : undefined
+                    },
+                    transaction_id: transactionId || undefined,
+                    client_reference: clientReference || undefined
+                  })
+                } else {
+                  const errorData = await markPaidResponse.json()
+                  console.error('Erreur lors du marquage comme payée:', errorData.message)
+                  // Utiliser la facture originale même si la mise à jour a échoué
+                  setPaymentDetails({
+                    type: 'invoice_payment',
+                    amount: amount || invoice.amount.toString(),
+                    currency,
+                    invoice: {
+                      id: invoice.id,
+                      invoiceNumber: invoice.invoiceNumber,
+                      type: invoice.type,
+                      clientName: invoice.clientName || invoice.project?.client?.name,
+                      project: invoice.project ? {
+                        name: invoice.project.name
+                      } : undefined
+                    },
+                    transaction_id: transactionId || undefined,
+                    client_reference: clientReference || undefined
+                  })
+                }
+              } catch (markPaidError) {
+                console.error('Erreur lors du marquage comme payée:', markPaidError)
+                // Continuer avec la facture originale
+                setPaymentDetails({
+                  type: 'invoice_payment',
+                  amount: amount || invoice.amount.toString(),
+                  currency,
+                  invoice: {
+                    id: invoice.id,
+                    invoiceNumber: invoice.invoiceNumber,
+                    type: invoice.type,
+                    clientName: invoice.clientName || invoice.project?.client?.name,
+                    project: invoice.project ? {
+                      name: invoice.project.name
+                    } : undefined
+                  },
+                  transaction_id: transactionId || undefined,
+                  client_reference: clientReference || undefined
+                })
+              }
+            } else {
+              // La facture est déjà payée, utiliser ses détails
+              setPaymentDetails({
+                type: 'invoice_payment',
+                amount: amount || invoice.amount.toString(),
+                currency,
+                invoice: {
+                  id: invoice.id,
+                  invoiceNumber: invoice.invoiceNumber,
+                  type: invoice.type,
+                  clientName: invoice.clientName || invoice.project?.client?.name,
+                  project: invoice.project ? {
+                    name: invoice.project.name
+                  } : undefined
+                },
+                transaction_id: transactionId || undefined,
+                client_reference: clientReference || undefined
+              })
+            }
           }
         } else {
           // Paiement générique
@@ -91,7 +173,8 @@ function PaymentSuccessContent() {
     if (!paymentDetails?.invoice?.id) return
 
     try {
-      const response = await fetch(`/api/invoices/${paymentDetails.invoice.id}/pdf`)
+      // Utiliser la route publique avec le numéro de facture pour la sécurité
+      const response = await fetch(`/api/invoices/${paymentDetails.invoice.id}/pdf-public?invoiceNumber=${encodeURIComponent(paymentDetails.invoice.invoiceNumber)}`)
       if (response.ok) {
         const blob = await response.blob()
         const url = window.URL.createObjectURL(blob)
@@ -102,6 +185,7 @@ function PaymentSuccessContent() {
         document.body.appendChild(a)
         a.click()
         window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
         toast.success('PDF téléchargé avec succès')
       } else {
         toast.error('Erreur lors du téléchargement du PDF')
@@ -130,10 +214,9 @@ function PaymentSuccessContent() {
             <p className="text-muted-foreground mb-4">
               Votre paiement a été traité avec succès, mais nous n'avons pas pu récupérer tous les détails.
             </p>
-            <Button onClick={() => router.push('/dashboard')}>
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Retour au dashboard
-            </Button>
+            <p className="text-sm text-muted-foreground">
+              Si vous avez des questions, contactez le prestataire qui vous a envoyé ce lien.
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -234,43 +317,31 @@ function PaymentSuccessContent() {
         {/* Actions */}
         <Card>
           <CardContent className="pt-6">
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2">
               {paymentDetails.invoice && (
-                <>
-                  <Button onClick={handleDownloadPDF} className="w-full">
-                    <Download className="w-4 h-4 mr-2" />
-                    Télécharger PDF
-                  </Button>
-                  
-                  <Button 
-                    variant="outline" 
-                    onClick={() => router.push(`/invoices/${paymentDetails.invoice?.id}`)}
-                    className="w-full"
-                  >
-                    <Eye className="w-4 h-4 mr-2" />
-                    Voir la facture
-                  </Button>
-                </>
+                <Button onClick={handleDownloadPDF} className="w-full">
+                  <Download className="w-4 h-4 mr-2" />
+                  Télécharger la facture PDF
+                </Button>
               )}
               
               <Button 
                 variant="outline" 
-                onClick={() => router.push('/wave-transactions')}
+                onClick={() => window.location.href = 'mailto:support@example.com'}
                 className="w-full"
               >
-                <ExternalLink className="w-4 h-4 mr-2" />
-                Transactions Wave
-              </Button>
-              
-              <Button 
-                variant="ghost" 
-                onClick={() => router.push('/dashboard')}
-                className={`w-full ${paymentDetails.invoice ? 'sm:col-span-3' : 'sm:col-span-2'}`}
-              >
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Retour au dashboard
+                <Mail className="w-4 h-4 mr-2" />
+                Contacter le support
               </Button>
             </div>
+            
+            {paymentDetails.invoice && (
+              <div className="mt-4 text-center">
+                <p className="text-sm text-muted-foreground">
+                  Gardez cette page ou téléchargez votre facture comme preuve de paiement
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -278,19 +349,20 @@ function PaymentSuccessContent() {
         <Card className="bg-blue-50 border-blue-200">
           <CardContent className="pt-6">
             <div className="text-center">
-              <h4 className="font-medium mb-2 text-blue-800">Que se passe-t-il maintenant ?</h4>
+              <h4 className="font-medium mb-2 text-blue-800">Votre paiement est confirmé !</h4>
               <div className="space-y-2 text-sm text-blue-700">
                 {paymentDetails.invoice ? (
                   <>
-                    <p>✅ Votre facture a été marquée comme payée</p>
-                    <p>📧 Un reçu de paiement vous sera envoyé par email</p>
-                    <p>📱 Vous pouvez suivre vos transactions Wave dans votre dashboard</p>
+                    <p>✅ Votre facture {paymentDetails.invoice.invoiceNumber} a été payée avec succès</p>
+                    <p>📄 Vous pouvez télécharger votre reçu PDF en cliquant sur le bouton ci-dessus</p>
+                    <p>📧 Le prestataire a été automatiquement notifié de votre paiement</p>
+                    <p>💡 Conservez cette page ou le PDF comme preuve de paiement</p>
                   </>
                 ) : (
                   <>
                     <p>✅ Votre paiement a été traité avec succès</p>
-                    <p>📱 La transaction apparaîtra dans votre historique Wave</p>
                     <p>📧 Un reçu vous sera envoyé par email si configuré</p>
+                    <p>💡 Conservez cette page comme preuve de paiement</p>
                   </>
                 )}
               </div>

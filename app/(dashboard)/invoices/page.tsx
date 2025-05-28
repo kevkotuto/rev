@@ -164,6 +164,15 @@ export default function InvoicesPage() {
   }>>([])
   const [lastCreatedLink, setLastCreatedLink] = useState<string | null>(null)
   
+  // Nouveaux états pour le dialog de partage
+  const [showSharePaymentDialog, setShowSharePaymentDialog] = useState(false)
+  const [sharePaymentData, setSharePaymentData] = useState<{
+    paymentLink: string
+    invoice?: Invoice
+    amount?: string
+    description?: string
+  } | null>(null)
+  
   // Hook de confirmation
   const { confirm, ConfirmDialog } = useConfirmDialog()
 
@@ -314,22 +323,34 @@ export default function InvoicesPage() {
       return
     }
     try {
-              const response = await fetch('/api/invoices', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(formData)
-        })
+      const response = await fetch('/api/invoices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      })
 
-        if (response.ok) {
-          const newInvoice = await response.json()
-          setInvoices([newInvoice, ...invoices])
-          setShowCreateDialog(false)
-          setFormData({
-            type: "INVOICE",
-            amount: 0,
-            generatePaymentLink: false
+      if (response.ok) {
+        const newInvoice = await response.json()
+        setInvoices([newInvoice, ...invoices])
+        setShowCreateDialog(false)
+        
+        // Si un lien de paiement a été généré, ouvrir le dialog de partage
+        if (formData.generatePaymentLink && newInvoice.paymentLink) {
+          setSharePaymentData({
+            paymentLink: newInvoice.paymentLink,
+            invoice: newInvoice,
+            amount: newInvoice.amount.toString(),
+            description: `Paiement facture ${newInvoice.invoiceNumber}`
           })
-          toast.success(`${formData.type === 'PROFORMA' ? 'Proforma' : 'Facture'} créée avec succès`)
+          setShowSharePaymentDialog(true)
+        }
+        
+        setFormData({
+          type: "INVOICE",
+          amount: 0,
+          generatePaymentLink: false
+        })
+        toast.success(`${formData.type === 'PROFORMA' ? 'Proforma' : 'Facture'} créée avec succès`)
       } else {
         const error = await response.json()
         toast.error(error.message || 'Erreur lors de la création')
@@ -473,12 +494,18 @@ export default function InvoicesPage() {
           })
         })
         
-        fetchInvoices()
+        // Mettre à jour l'état local
+        const updatedInvoice = { ...invoice, paymentLink: waveData.wave_launch_url || '', waveCheckoutId: waveData.id }
+        setInvoices(invoices.map(inv => inv.id === invoiceId ? updatedInvoice : inv))
         
-        // Ouvrir le lien de paiement généré
-        if (waveData.wave_launch_url) {
-          window.open(waveData.wave_launch_url, '_blank')
-        }
+        // Ouvrir le dialog de partage
+        setSharePaymentData({
+          paymentLink: waveData.wave_launch_url || '',
+          invoice: updatedInvoice,
+          amount: invoice.amount.toString(),
+          description: `Paiement facture ${invoice.invoiceNumber}`
+        })
+        setShowSharePaymentDialog(true)
       } else {
         const error = await response.json()
         toast.error(error.message || 'Erreur lors de la génération du lien de paiement')
@@ -609,6 +636,21 @@ Cordialement`
     const mailtoUrl = `mailto:${clientEmail || ''}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
     window.location.href = mailtoUrl
     toast.success('Email de paiement ouvert')
+  }
+
+  // Nouvelle fonction pour ouvrir le dialog de partage
+  const handleGetPaymentLink = (invoice: Invoice) => {
+    if (invoice.paymentLink) {
+      setSharePaymentData({
+        paymentLink: invoice.paymentLink,
+        invoice: invoice,
+        amount: invoice.amount.toString(),
+        description: `Paiement facture ${invoice.invoiceNumber}`
+      })
+      setShowSharePaymentDialog(true)
+    } else {
+      toast.error('Aucun lien de paiement disponible pour cette facture')
+    }
   }
 
   const handleCreatePaymentLink = async () => {
@@ -1167,6 +1209,10 @@ Cordialement`
                             <DropdownMenuItem onClick={() => copyPaymentLink(invoice.paymentLink!)}>
                               <Copy className="mr-2 h-4 w-4" />
                               Copier lien de paiement
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleGetPaymentLink(invoice)}>
+                              <CreditCard className="mr-2 h-4 w-4" />
+                              Obtenir le lien de paiement
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => sendViaWhatsApp(invoice.paymentLink!, invoice)}>
                               <MessageCircle className="mr-2 h-4 w-4" />
@@ -2057,6 +2103,135 @@ Cordialement`
               Nouveau lien
             </Button>
             <Button onClick={() => setShowPaymentLinksDialog(false)}>
+              Fermer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog de partage de lien de paiement */}
+      <Dialog open={showSharePaymentDialog} onOpenChange={setShowSharePaymentDialog}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Partager le lien de paiement</DialogTitle>
+            <DialogDescription>
+              {sharePaymentData?.invoice
+                ? `Partagez le lien de paiement pour la facture ${sharePaymentData.invoice.invoiceNumber}`
+                : "Partagez votre lien de paiement Wave"
+              }
+            </DialogDescription>
+          </DialogHeader>
+
+          {sharePaymentData && (
+            <div className="space-y-4 py-4">
+              {/* Informations sur le paiement */}
+              <div className="bg-muted p-4 rounded-lg space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="font-medium">Montant:</span>
+                  <span className="font-semibold text-lg">
+                    {sharePaymentData.invoice 
+                      ? formatCurrency(sharePaymentData.invoice.amount)
+                      : `${sharePaymentData.amount} XOF`
+                    }
+                  </span>
+                </div>
+                {sharePaymentData.invoice && (
+                  <>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Facture:</span>
+                      <span className="text-sm">{sharePaymentData.invoice.invoiceNumber}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Client:</span>
+                      <span className="text-sm">
+                        {sharePaymentData.invoice.clientName || sharePaymentData.invoice.project?.client?.name || 'Non défini'}
+                      </span>
+                    </div>
+                  </>
+                )}
+                <div className="border-t pt-2 mt-2">
+                  <p className="text-xs text-muted-foreground mb-2">Lien de paiement:</p>
+                  <div className="bg-white rounded p-2">
+                    <code className="text-xs break-all text-wrap">
+                      {sharePaymentData.paymentLink}
+                    </code>
+                  </div>
+                </div>
+              </div>
+
+              {/* Actions de partage */}
+              <div className="grid grid-cols-2 gap-3">
+                <Button 
+                  variant="outline" 
+                  onClick={() => copyPaymentLink(sharePaymentData.paymentLink)}
+                  className="w-full"
+                >
+                  <Copy className="mr-2 h-4 w-4" />
+                  Copier le lien
+                </Button>
+                
+                <Button 
+                  variant="outline"
+                  onClick={() => window.open(sharePaymentData.paymentLink, '_blank')}
+                  className="w-full"
+                >
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  Ouvrir le lien
+                </Button>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3">
+                {sharePaymentData.invoice && (
+                  <>
+                    <Button 
+                      variant="default"
+                      onClick={() => {
+                        sendViaWhatsApp(sharePaymentData.paymentLink, sharePaymentData.invoice!)
+                        setShowSharePaymentDialog(false)
+                      }}
+                      className="w-full"
+                    >
+                      <MessageCircle className="mr-2 h-4 w-4" />
+                      Envoyer via WhatsApp
+                    </Button>
+                    
+                    <Button 
+                      variant="default"
+                      onClick={() => {
+                        sendViaEmail(sharePaymentData.paymentLink, sharePaymentData.invoice!)
+                        setShowSharePaymentDialog(false)
+                      }}
+                      className="w-full"
+                    >
+                      <Mail className="mr-2 h-4 w-4" />
+                      Envoyer par Email
+                    </Button>
+                  </>
+                )}
+              </div>
+
+              {/* Instructions pour le client */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <div className="flex items-start gap-2">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
+                  <div className="text-sm text-blue-800">
+                    <p className="font-medium mb-1">Instructions pour le client:</p>
+                    <ul className="text-xs space-y-1 text-blue-700">
+                      <li>• Cliquer sur le lien pour accéder au paiement Wave</li>
+                      <li>• Suivre les instructions sur la page Wave CI</li>
+                      <li>• Le paiement sera confirmé automatiquement</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => setShowSharePaymentDialog(false)}
+            >
               Fermer
             </Button>
           </DialogFooter>

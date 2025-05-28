@@ -35,7 +35,11 @@ import {
   X,
   ArrowRight,
   RotateCcw,
-  Mail
+  Mail,
+  Copy,
+  ExternalLink,
+  MessageCircle,
+  Link2
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -90,6 +94,7 @@ interface Project {
     type: string
     amount: number
     status: string
+    paymentLink?: string
   }>
   files: Array<{
     id: string
@@ -230,6 +235,15 @@ export default function ProjectDetailPage() {
 
   const [fileUpload, setFileUpload] = useState<File | null>(null)
   const [fileDescription, setFileDescription] = useState("")
+
+  // Nouveaux états pour le dialog de partage
+  const [showSharePaymentDialog, setShowSharePaymentDialog] = useState(false)
+  const [sharePaymentData, setSharePaymentData] = useState<{
+    paymentLink: string
+    invoice?: any
+    amount?: string
+    description?: string
+  } | null>(null)
 
   useEffect(() => {
     if (projectId) {
@@ -479,7 +493,12 @@ export default function ProjectDetailPage() {
   }
 
   const handleWavePayment = async (providerId: string, projectProviderId: string, amount: number) => {
-    if (!confirm(`Effectuer un paiement Wave de ${formatCurrency(amount)} à ce prestataire ?`)) return
+    const formattedAmount = new Intl.NumberFormat('fr-FR', {
+      style: 'currency',
+      currency: 'XOF'
+    }).format(amount)
+    
+    if (!confirm(`Effectuer un paiement Wave de ${formattedAmount} à ce prestataire ?`)) return
 
     try {
       // Récupérer les informations du prestataire
@@ -489,11 +508,16 @@ export default function ProjectDetailPage() {
         return
       }
 
+      if (!provider.phone) {
+        toast.error('Numéro de téléphone du prestataire requis pour le paiement Wave')
+        return
+      }
+
       const response = await fetch('/api/wave/payout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          receive_amount: amount,
+          receive_amount: amount.toString(),
           mobile: provider.phone,
           name: provider.name,
           payment_reason: `Paiement Wave pour projet ${project?.name}`,
@@ -505,11 +529,16 @@ export default function ProjectDetailPage() {
 
       if (response.ok) {
         const result = await response.json()
-        toast.success(result.message || 'Paiement Wave initié avec succès')
         
-        // Marquer le prestataire comme payé dans le projet si le paiement a réussi
-        if (result.waveData?.status === 'succeeded') {
+        // Vérifier le statut du paiement
+        if (result.success || result.waveData?.status === 'succeeded') {
+          toast.success(result.message || 'Paiement Wave effectué avec succès')
+          // Marquer le prestataire comme payé
           await handleMarkProviderAsPaid(projectProviderId)
+        } else if (result.waveData?.status === 'pending') {
+          toast.success('Paiement Wave initié, en attente de confirmation')
+        } else {
+          toast.warning(result.message || 'Paiement Wave initié')
         }
         
         fetchProject()
@@ -520,6 +549,80 @@ export default function ProjectDetailPage() {
     } catch (error) {
       console.error('Erreur:', error)
       toast.error('Erreur lors du paiement Wave')
+    }
+  }
+
+  // Nouvelles fonctions pour le partage de liens de paiement
+  const copyPaymentLink = async (paymentLink: string) => {
+    try {
+      await navigator.clipboard.writeText(paymentLink)
+      toast.success('Lien de paiement copié !')
+    } catch (err) {
+      toast.error('Erreur lors de la copie')
+    }
+  }
+
+  const sendViaWhatsApp = (paymentLink: string, invoice: any) => {
+    const clientName = invoice.clientName || project?.client?.name || 'Cher client'
+    const formattedAmount = new Intl.NumberFormat('fr-FR', {
+      style: 'currency',
+      currency: 'XOF'
+    }).format(invoice.amount)
+    
+    const message = `Bonjour ${clientName},
+
+Veuillez trouver ci-dessous le lien de paiement pour votre facture ${invoice.invoiceNumber} d'un montant de ${formattedAmount} :
+
+${paymentLink}
+
+Vous pouvez régler cette facture en toute sécurité via Wave CI en cliquant sur le lien ci-dessus.
+
+En cas de question, n'hésitez pas à nous contacter.
+
+Cordialement`
+
+    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`
+    window.open(whatsappUrl, '_blank')
+    toast.success('WhatsApp ouvert avec le message de paiement')
+  }
+
+  const sendViaEmail = (paymentLink: string, invoice: any) => {
+    const clientEmail = invoice.clientEmail || project?.client?.email
+    const clientName = invoice.clientName || project?.client?.name || 'Cher client'
+    const formattedAmount = new Intl.NumberFormat('fr-FR', {
+      style: 'currency',
+      currency: 'XOF'
+    }).format(invoice.amount)
+    
+    const subject = `Facture ${invoice.invoiceNumber} - Lien de paiement`
+    const body = `Bonjour ${clientName},
+
+Veuillez trouver ci-dessous le lien de paiement pour votre facture ${invoice.invoiceNumber} d'un montant de ${formattedAmount} :
+
+${paymentLink}
+
+Vous pouvez régler cette facture en toute sécurité via Wave CI en cliquant sur le lien ci-dessus.
+
+En cas de question, n'hésitez pas à nous contacter.
+
+Cordialement`
+
+    const mailtoUrl = `mailto:${clientEmail || ''}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+    window.location.href = mailtoUrl
+    toast.success('Email de paiement ouvert')
+  }
+
+  const handleGetPaymentLink = (invoice: any) => {
+    if (invoice.paymentLink) {
+      setSharePaymentData({
+        paymentLink: invoice.paymentLink,
+        invoice: invoice,
+        amount: invoice.amount.toString(),
+        description: `Paiement facture ${invoice.invoiceNumber}`
+      })
+      setShowSharePaymentDialog(true)
+    } else {
+      toast.error('Aucun lien de paiement disponible pour cette facture')
     }
   }
 
@@ -559,8 +662,8 @@ export default function ProjectDetailPage() {
               body: JSON.stringify({
                 amount: advancePaymentForm.amount,
                 currency: 'XOF',
-                success_url: `${window.location.origin}/payment/success?invoice=${result.invoice.id}`,
-                error_url: `${window.location.origin}/payment/error?invoice=${result.invoice.id}`,
+                success_url: `${window.location.origin}/payment/success?invoice=${result.invoice.id}&amount=${advancePaymentForm.amount}&currency=XOF`,
+                error_url: `${window.location.origin}/payment/error?invoice=${result.invoice.id}&amount=${advancePaymentForm.amount}&currency=XOF`,
                 client_reference: result.invoice.invoiceNumber,
                 description: advancePaymentForm.description,
                 projectId: projectId,
@@ -569,17 +672,43 @@ export default function ProjectDetailPage() {
             })
 
             if (checkoutResponse.ok) {
-              const checkoutData = await checkoutResponse.json()
-              if (checkoutData.wave_launch_url) {
-                window.open(checkoutData.wave_launch_url, '_blank')
+              const checkoutResult = await checkoutResponse.json()
+              // La réponse contient { checkout: waveData }
+              const waveData = checkoutResult.checkout || checkoutResult
+              
+              if (waveData.wave_launch_url) {
+                // Mettre à jour la facture avec le lien de paiement
+                await fetch(`/api/invoices/${result.invoice.id}`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    ...result.invoice,
+                    paymentLink: waveData.wave_launch_url,
+                    waveCheckoutId: waveData.id
+                  })
+                })
+                
+                // Ouvrir le dialog de partage au lieu d'ouvrir directement le lien
+                setSharePaymentData({
+                  paymentLink: waveData.wave_launch_url,
+                  invoice: { 
+                    ...result.invoice, 
+                    paymentLink: waveData.wave_launch_url,
+                    waveCheckoutId: waveData.id 
+                  },
+                  amount: advancePaymentForm.amount,
+                  description: advancePaymentForm.description
+                })
+                setShowSharePaymentDialog(true)
+                toast.success('Lien de paiement généré avec succès')
               }
+            } else {
+              const checkoutError = await checkoutResponse.json()
+              toast.error(checkoutError.message || 'Erreur lors de la création du lien de paiement')
             }
           } catch (checkoutError) {
             console.error('Erreur lors de la création du checkout:', checkoutError)
-            // Fallback vers l'ancien système si disponible
-            if (result.paymentLink) {
-              window.open(result.paymentLink, '_blank')
-            }
+            toast.error('Erreur lors de la création du lien de paiement')
           }
         }
       } else {
@@ -1884,6 +2013,32 @@ export default function ProjectDetailPage() {
                                   <Download className="mr-2 h-4 w-4" />
                                   Télécharger PDF
                                 </DropdownMenuItem>
+                                
+                                {invoice.paymentLink && (
+                                  <>
+                                    <DropdownMenuItem onClick={() => window.open(invoice.paymentLink, '_blank')}>
+                                      <ExternalLink className="mr-2 h-4 w-4" />
+                                      Ouvrir lien de paiement
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => copyPaymentLink(invoice.paymentLink!)}>
+                                      <Copy className="mr-2 h-4 w-4" />
+                                      Copier lien de paiement
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => handleGetPaymentLink(invoice)}>
+                                      <CreditCard className="mr-2 h-4 w-4" />
+                                      Obtenir le lien de paiement
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => sendViaWhatsApp(invoice.paymentLink!, invoice)}>
+                                      <MessageCircle className="mr-2 h-4 w-4" />
+                                      Envoyer via WhatsApp
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => sendViaEmail(invoice.paymentLink!, invoice)}>
+                                      <Mail className="mr-2 h-4 w-4" />
+                                      Envoyer par email
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                                
                                 <DropdownMenuItem onClick={() => window.location.href = `/invoices/${invoice.id}`}>
                                   <Eye className="mr-2 h-4 w-4" />
                                   Voir détails
@@ -2080,6 +2235,135 @@ export default function ProjectDetailPage() {
           }}
         />
       )}
+
+      {/* Dialog de partage de lien de paiement */}
+      <Dialog open={showSharePaymentDialog} onOpenChange={setShowSharePaymentDialog}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Partager le lien de paiement</DialogTitle>
+            <DialogDescription>
+              {sharePaymentData?.invoice
+                ? `Partagez le lien de paiement pour la facture ${sharePaymentData.invoice.invoiceNumber}`
+                : "Partagez votre lien de paiement Wave"
+              }
+            </DialogDescription>
+          </DialogHeader>
+
+          {sharePaymentData && (
+            <div className="space-y-4 py-4">
+              {/* Informations sur le paiement */}
+              <div className="bg-muted p-4 rounded-lg space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="font-medium">Montant:</span>
+                  <span className="font-semibold text-lg">
+                    {sharePaymentData.invoice 
+                      ? formatCurrency(sharePaymentData.invoice.amount)
+                      : `${sharePaymentData.amount} XOF`
+                    }
+                  </span>
+                </div>
+                {sharePaymentData.invoice && (
+                  <>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Facture:</span>
+                      <span className="text-sm">{sharePaymentData.invoice.invoiceNumber}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Client:</span>
+                      <span className="text-sm">
+                        {sharePaymentData.invoice.clientName || project?.client?.name || 'Non défini'}
+                      </span>
+                    </div>
+                  </>
+                )}
+                <div className="border-t pt-2 mt-2">
+                  <p className="text-xs text-muted-foreground mb-2">Lien de paiement:</p>
+                  <div className="bg-white rounded p-2">
+                    <code className="text-xs break-all text-wrap">
+                      {sharePaymentData.paymentLink}
+                    </code>
+                  </div>
+                </div>
+              </div>
+
+              {/* Actions de partage */}
+              <div className="grid grid-cols-2 gap-3">
+                <Button 
+                  variant="outline" 
+                  onClick={() => copyPaymentLink(sharePaymentData.paymentLink)}
+                  className="w-full"
+                >
+                  <Copy className="mr-2 h-4 w-4" />
+                  Copier le lien
+                </Button>
+                
+                <Button 
+                  variant="outline"
+                  onClick={() => window.open(sharePaymentData.paymentLink, '_blank')}
+                  className="w-full"
+                >
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  Ouvrir le lien
+                </Button>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3">
+                {sharePaymentData.invoice && (
+                  <>
+                    <Button 
+                      variant="default"
+                      onClick={() => {
+                        sendViaWhatsApp(sharePaymentData.paymentLink, sharePaymentData.invoice!)
+                        setShowSharePaymentDialog(false)
+                      }}
+                      className="w-full"
+                    >
+                      <MessageCircle className="mr-2 h-4 w-4" />
+                      Envoyer via WhatsApp
+                    </Button>
+                    
+                    <Button 
+                      variant="default"
+                      onClick={() => {
+                        sendViaEmail(sharePaymentData.paymentLink, sharePaymentData.invoice!)
+                        setShowSharePaymentDialog(false)
+                      }}
+                      className="w-full"
+                    >
+                      <Mail className="mr-2 h-4 w-4" />
+                      Envoyer par Email
+                    </Button>
+                  </>
+                )}
+              </div>
+
+              {/* Instructions pour le client */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <div className="flex items-start gap-2">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
+                  <div className="text-sm text-blue-800">
+                    <p className="font-medium mb-1">Instructions pour le client:</p>
+                    <ul className="text-xs space-y-1 text-blue-700">
+                      <li>• Cliquer sur le lien pour accéder au paiement Wave</li>
+                      <li>• Suivre les instructions sur la page Wave CI</li>
+                      <li>• Le paiement sera confirmé automatiquement</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => setShowSharePaymentDialog(false)}
+            >
+              Fermer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 } 

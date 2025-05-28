@@ -2,13 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
-import { z } from "zod"
-
-const markPaidSchema = z.object({
-  paymentMethod: z.enum(["CASH", "BANK_TRANSFER", "WAVE", "CHECK", "OTHER"]).optional(),
-  paidDate: z.string().optional(),
-  notes: z.string().optional()
-})
+import { createNotification } from "@/lib/notifications"
 
 export async function PUT(
   request: NextRequest,
@@ -26,39 +20,13 @@ export async function PUT(
 
     const { id } = await params
     const body = await request.json()
-    const validatedData = markPaidSchema.parse(body)
+    const { paymentMethod = 'WAVE', paidDate, transactionId, amount: paidAmount } = body
 
-    // Vérifier que la facture appartient à l'utilisateur
+    // Vérifier que la facture existe et appartient à l'utilisateur
     const invoice = await prisma.invoice.findFirst({
       where: {
         id,
         userId: session.user.id
-      }
-    })
-
-    if (!invoice) {
-      return NextResponse.json(
-        { message: "Facture non trouvée" },
-        { status: 404 }
-      )
-    }
-
-    if (invoice.status === "PAID") {
-      return NextResponse.json(
-        { message: "Cette facture est déjà marquée comme payée" },
-        { status: 400 }
-      )
-    }
-
-    // Marquer la facture comme payée
-    const updatedInvoice = await prisma.invoice.update({
-      where: { id },
-      data: {
-        status: "PAID",
-        paidDate: validatedData.paidDate ? new Date(validatedData.paidDate) : new Date(),
-        notes: validatedData.notes ? 
-          `${invoice.notes ? invoice.notes + '\n' : ''}Payé par ${validatedData.paymentMethod || 'méthode non spécifiée'} le ${new Date().toLocaleDateString('fr-FR')}` : 
-          invoice.notes
       },
       include: {
         project: {
@@ -69,20 +37,64 @@ export async function PUT(
       }
     })
 
-    return NextResponse.json({
-      invoice: updatedInvoice,
-      message: "Facture marquée comme payée avec succès"
-    })
-
-  } catch (error) {
-    if (error instanceof z.ZodError) {
+    if (!invoice) {
       return NextResponse.json(
-        { message: "Données invalides", errors: error.errors },
+        { message: "Facture non trouvée" },
+        { status: 404 }
+      )
+    }
+
+    // Vérifier si la facture n'est pas déjà payée
+    if (invoice.status === 'PAID') {
+      return NextResponse.json(
+        { message: "Cette facture est déjà marquée comme payée" },
         { status: 400 }
       )
     }
 
-    console.error("Erreur lors du marquage de la facture comme payée:", error)
+    // Mise à jour de la facture
+    const updatedInvoice = await prisma.invoice.update({
+      where: { id },
+      data: {
+        status: "PAID",
+        paidDate: paidDate ? new Date(paidDate) : new Date()
+      },
+      include: {
+        project: {
+          include: {
+            client: true
+          }
+        }
+      }
+    })
+
+    // Créer une notification
+    await createNotification({
+      userId: session.user.id,
+      title: "Facture payée",
+      message: `La facture ${invoice.invoiceNumber} a été marquée comme payée (${paymentMethod})`,
+      type: "SUCCESS",
+      relatedType: "invoice",
+      relatedId: invoice.id,
+      actionUrl: `/invoices/${invoice.id}`,
+      metadata: {
+        invoiceNumber: invoice.invoiceNumber,
+        amount: invoice.amount,
+        paymentMethod,
+        transactionId: transactionId || null
+      }
+    })
+
+    return NextResponse.json({
+      success: true,
+      message: `Facture ${invoice.invoiceNumber} marquée comme payée avec succès`,
+      invoice: updatedInvoice,
+      paymentMethod,
+      transactionId: transactionId || null
+    })
+
+  } catch (error) {
+    console.error("Erreur lors du marquage comme payée:", error)
     return NextResponse.json(
       { message: "Erreur interne du serveur" },
       { status: 500 }
