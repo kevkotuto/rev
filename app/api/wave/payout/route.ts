@@ -4,14 +4,16 @@ import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { createNotification } from "@/lib/notifications"
 import { z } from "zod"
+import { v4 as uuidv4 } from "uuid"
 
-const sendMoneySchema = z.object({
+const payoutSchema = z.object({
   receive_amount: z.number().positive("Le montant doit être positif"),
   currency: z.string().default("XOF"),
   mobile: z.string().min(1, "Le numéro de téléphone est requis"),
   name: z.string().optional(),
-  payment_reason: z.string().optional(),
-  client_reference: z.string().optional(),
+  national_id: z.string().optional(),
+  payment_reason: z.string().max(40, "Le motif de paiement ne peut pas dépasser 40 caractères").optional(),
+  client_reference: z.string().max(255, "La référence client ne peut pas dépasser 255 caractères").optional(),
   type: z.enum(["provider_payment", "client_refund", "general_payment"]).default("general_payment"),
   providerId: z.string().optional(),
   clientId: z.string().optional(),
@@ -30,13 +32,15 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const validatedData = sendMoneySchema.parse(body)
+    const validatedData = payoutSchema.parse(body)
 
     // Récupérer la clé API Wave de l'utilisateur
     const user = await prisma.user.findUnique({
       where: { id: session.user.id },
       select: {
-        waveApiKey: true
+        waveApiKey: true,
+        name: true,
+        companyName: true
       }
     })
 
@@ -47,35 +51,50 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Générer une clé d'idempotence unique
+    const idempotencyKey = uuidv4()
+
     // Préparer les données pour l'API Wave Payout
     const wavePayload = {
-      receive_amount: validatedData.receive_amount.toString(),
       currency: validatedData.currency,
+      receive_amount: validatedData.receive_amount.toString(),
       mobile: validatedData.mobile,
       ...(validatedData.name && { name: validatedData.name }),
+      ...(validatedData.national_id && { national_id: validatedData.national_id }),
       ...(validatedData.payment_reason && { payment_reason: validatedData.payment_reason }),
       ...(validatedData.client_reference && { client_reference: validatedData.client_reference })
     }
 
-    // Appeler l'API Wave Payout (nouvelle API)
+    console.log('Envoi payout Wave:', wavePayload)
+
+    // Appeler l'API Wave Payout
     const waveResponse = await fetch('https://api.wave.com/v1/payout', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${user.waveApiKey}`,
         'Content-Type': 'application/json',
-        'Idempotency-Key': require('crypto').randomUUID()
+        'Idempotency-Key': idempotencyKey
       },
       body: JSON.stringify(wavePayload)
     })
 
+    const responseText = await waveResponse.text()
+    console.log('Réponse Wave brute:', responseText)
+
     if (!waveResponse.ok) {
-      const errorData = await waveResponse.json().catch(() => ({}))
+      let errorData
+      try {
+        errorData = JSON.parse(responseText)
+      } catch {
+        errorData = { message: responseText || 'Erreur inconnue' }
+      }
+      
       console.error('Erreur Wave API:', errorData)
       
       // Créer une notification d'échec
       await createNotification({
         userId: session.user.id,
-        title: "Échec d'envoi d'argent",
+        title: "Échec d'envoi de paiement",
         message: `Échec de l'envoi de ${validatedData.receive_amount} ${validatedData.currency} vers ${validatedData.mobile}`,
         type: "WAVE_PAYMENT_FAILED",
         metadata: {
@@ -87,12 +106,13 @@ export async function POST(request: NextRequest) {
       })
       
       return NextResponse.json(
-        { message: "Erreur lors de l'envoi d'argent", error: errorData },
+        { message: "Erreur lors de l'envoi du paiement", error: errorData },
         { status: waveResponse.status }
       )
     }
 
-    const waveData = await waveResponse.json()
+    const waveData = JSON.parse(responseText)
+    console.log('Données Wave reçues:', waveData)
 
     // Créer l'enregistrement local selon le type
     let localRecord = null
@@ -116,10 +136,10 @@ export async function POST(request: NextRequest) {
           amount: validatedData.receive_amount,
           fees: parseFloat(waveData.fee || "0"),
           paymentMethod: "WAVE",
-          status: "COMPLETED",
+          status: waveData.status === "succeeded" ? "COMPLETED" : "PENDING",
           wavePayoutId: waveData.id,
           notes: validatedData.payment_reason,
-          paidAt: new Date(),
+          paidAt: waveData.status === "succeeded" ? new Date() : null,
           providerId: validatedData.providerId,
           userId: session.user.id
         }
@@ -128,9 +148,9 @@ export async function POST(request: NextRequest) {
       // Notification pour paiement prestataire
       await createNotification({
         userId: session.user.id,
-        title: "Paiement prestataire envoyé",
-        message: `Paiement de ${validatedData.receive_amount} ${validatedData.currency} envoyé à ${provider.name}`,
-        type: "PROVIDER_PAYMENT_COMPLETED",
+        title: waveData.status === "succeeded" ? "Paiement prestataire envoyé" : "Paiement prestataire en cours",
+        message: `Paiement de ${validatedData.receive_amount} ${validatedData.currency} ${waveData.status === "succeeded" ? "envoyé à" : "en cours vers"} ${provider.name}`,
+        type: waveData.status === "succeeded" ? "PROVIDER_PAYMENT_COMPLETED" : "INFO",
         relatedType: "provider",
         relatedId: validatedData.providerId,
         actionUrl: `/providers/${validatedData.providerId}`,
@@ -138,7 +158,8 @@ export async function POST(request: NextRequest) {
           amount: validatedData.receive_amount,
           currency: validatedData.currency,
           providerName: provider.name,
-          transactionId: waveData.id
+          transactionId: waveData.id,
+          status: waveData.status
         }
       })
     } else {
@@ -163,7 +184,7 @@ export async function POST(request: NextRequest) {
           amount: validatedData.receive_amount,
           fee: parseFloat(waveData.fee || "0"),
           currency: validatedData.currency,
-          timestamp: new Date(),
+          timestamp: new Date(waveData.timestamp || new Date()),
           counterpartyName: validatedData.name,
           counterpartyMobile: validatedData.mobile,
           expenseId: localRecord.id,
@@ -176,15 +197,15 @@ export async function POST(request: NextRequest) {
       })
 
       // Notification générale
-      const notificationType = validatedData.type === "client_refund" ? "SUCCESS" : "WAVE_PAYMENT_RECEIVED"
+      const notificationType = waveData.status === "succeeded" ? "SUCCESS" : "INFO"
       const title = validatedData.type === "client_refund" 
-        ? "Remboursement client envoyé"
-        : "Paiement Wave envoyé"
+        ? (waveData.status === "succeeded" ? "Remboursement client envoyé" : "Remboursement client en cours")
+        : (waveData.status === "succeeded" ? "Paiement Wave envoyé" : "Paiement Wave en cours")
       
       await createNotification({
         userId: session.user.id,
         title,
-        message: `${validatedData.receive_amount} ${validatedData.currency} envoyé vers ${validatedData.mobile}`,
+        message: `${validatedData.receive_amount} ${validatedData.currency} ${waveData.status === "succeeded" ? "envoyé vers" : "en cours vers"} ${validatedData.mobile}`,
         type: notificationType,
         relatedType: "wave_transaction",
         relatedId: waveData.id,
@@ -193,7 +214,8 @@ export async function POST(request: NextRequest) {
           amount: validatedData.receive_amount,
           currency: validatedData.currency,
           recipient: validatedData.mobile,
-          transactionId: waveData.id
+          transactionId: waveData.id,
+          status: waveData.status
         }
       })
     }
@@ -202,7 +224,9 @@ export async function POST(request: NextRequest) {
       success: true,
       transaction: waveData,
       localRecord,
-      message: "Paiement envoyé avec succès"
+      message: waveData.status === "succeeded" 
+        ? "Paiement envoyé avec succès" 
+        : "Paiement en cours de traitement"
     })
 
   } catch (error) {
@@ -213,7 +237,92 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.error("Erreur lors de l'envoi d'argent:", error)
+    console.error("Erreur lors de l'envoi du paiement:", error)
+    return NextResponse.json(
+      { message: "Erreur interne du serveur" },
+      { status: 500 }
+    )
+  }
+}
+
+// GET pour récupérer un paiement par ID
+export async function GET(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions)
+    
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { message: "Non autorisé" },
+        { status: 401 }
+      )
+    }
+
+    const { searchParams } = new URL(request.url)
+    const payoutId = searchParams.get('id')
+
+    if (!payoutId) {
+      return NextResponse.json(
+        { message: "ID de paiement requis" },
+        { status: 400 }
+      )
+    }
+
+    // Récupérer la clé API Wave de l'utilisateur
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: {
+        waveApiKey: true
+      }
+    })
+
+    if (!user?.waveApiKey) {
+      return NextResponse.json(
+        { message: "Clé API Wave non configurée" },
+        { status: 400 }
+      )
+    }
+
+    // Appeler l'API Wave pour récupérer le paiement
+    const waveResponse = await fetch(`https://api.wave.com/v1/payout/${payoutId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${user.waveApiKey}`,
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!waveResponse.ok) {
+      const errorData = await waveResponse.json().catch(() => ({}))
+      return NextResponse.json(
+        { message: "Erreur lors de la récupération du paiement", error: errorData },
+        { status: waveResponse.status }
+      )
+    }
+
+    const waveData = await waveResponse.json()
+
+    // Récupérer l'enregistrement local associé
+    const localAssignment = await prisma.waveTransactionAssignment.findFirst({
+      where: {
+        transactionId: payoutId,
+        userId: session.user.id
+      },
+      include: {
+        expense: true,
+        project: true,
+        client: true,
+        provider: true
+      }
+    })
+
+    return NextResponse.json({
+      success: true,
+      transaction: waveData,
+      localRecord: localAssignment
+    })
+
+  } catch (error) {
+    console.error("Erreur lors de la récupération du paiement:", error)
     return NextResponse.json(
       { message: "Erreur interne du serveur" },
       { status: 500 }

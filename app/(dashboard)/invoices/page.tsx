@@ -431,18 +431,48 @@ export default function InvoicesPage() {
 
   const handleGeneratePaymentLink = async (invoiceId: string) => {
     try {
-      const response = await fetch(`/api/invoices/${invoiceId}/payment-link`, {
-        method: 'POST'
+      // Récupérer les détails de la facture
+      const invoice = invoices.find(inv => inv.id === invoiceId)
+      if (!invoice) {
+        toast.error('Facture non trouvée')
+        return
+      }
+
+      // Utiliser le nouveau système de checkout
+      const response = await fetch('/api/wave/checkout/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: invoice.amount.toString(),
+          currency: 'XOF',
+          success_url: `${window.location.origin}/payment/success?invoice=${invoiceId}`,
+          error_url: `${window.location.origin}/payment/error?invoice=${invoiceId}`,
+          client_reference: invoice.invoiceNumber,
+          description: `Paiement facture ${invoice.invoiceNumber}`,
+          projectId: invoice.project?.id,
+          clientId: invoice.project?.client?.id
+        })
       })
 
       if (response.ok) {
         const result = await response.json()
-        toast.success(result.message)
+        toast.success('Lien de paiement généré avec succès')
+        
+        // Mettre à jour la facture avec le lien de paiement
+        await fetch(`/api/invoices/${invoiceId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...invoice,
+            paymentLink: result.wave_launch_url
+          })
+        })
+        
         fetchInvoices()
         
         // Ouvrir le lien de paiement généré
-        if (result.paymentLink) {
-          window.open(result.paymentLink, '_blank')
+        if (result.wave_launch_url) {
+          window.open(result.wave_launch_url, '_blank')
         }
       } else {
         const error = await response.json()
@@ -461,31 +491,58 @@ export default function InvoicesPage() {
       variant: "default",
       confirmText: "Régénérer",
       onConfirm: async () => {
+        try {
+          // Récupérer les détails de la facture
+          const invoice = invoices.find(inv => inv.id === invoiceId)
+          if (!invoice) {
+            toast.error('Facture non trouvée')
+            return
+          }
 
-    try {
-      const response = await fetch(`/api/invoices/${invoiceId}/payment-link`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ regenerate: true })
-      })
+          // Créer une nouvelle session de checkout
+          const response = await fetch('/api/wave/checkout/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              amount: invoice.amount.toString(),
+              currency: 'XOF',
+              success_url: `${window.location.origin}/payment/success?invoice=${invoiceId}`,
+              error_url: `${window.location.origin}/payment/error?invoice=${invoiceId}`,
+              client_reference: `${invoice.invoiceNumber}-${Date.now()}`, // Ajouter timestamp pour unicité
+              description: `Paiement facture ${invoice.invoiceNumber} (nouveau lien)`,
+              projectId: invoice.project?.id,
+              clientId: invoice.project?.client?.id
+            })
+          })
 
-      if (response.ok) {
-        const result = await response.json()
-        toast.success('Lien de paiement régénéré avec succès')
-        fetchInvoices()
-        
-        // Optionnel: ouvrir le nouveau lien
-        if (result.paymentLink) {
-          window.open(result.paymentLink, '_blank')
+          if (response.ok) {
+            const result = await response.json()
+            toast.success('Lien de paiement régénéré avec succès')
+            
+            // Mettre à jour la facture avec le nouveau lien
+            await fetch(`/api/invoices/${invoiceId}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                ...invoice,
+                paymentLink: result.wave_launch_url
+              })
+            })
+            
+            fetchInvoices()
+            
+            // Optionnel: ouvrir le nouveau lien
+            if (result.wave_launch_url) {
+              window.open(result.wave_launch_url, '_blank')
+            }
+          } else {
+            const error = await response.json()
+            toast.error(error.message || 'Erreur lors de la régénération du lien')
+          }
+        } catch (error) {
+          console.error('Erreur:', error)
+          toast.error('Erreur lors de la régénération du lien')
         }
-      } else {
-        const error = await response.json()
-        toast.error(error.message || 'Erreur lors de la régénération du lien')
-      }
-    } catch (error) {
-      console.error('Erreur:', error)
-      toast.error('Erreur lors de la régénération du lien')
-    }
       }
     })
   }
@@ -514,6 +571,8 @@ export default function InvoicesPage() {
       let requestData: any = {
         amount: formattedAmount,
         currency: paymentLinkForm.currency,
+        success_url: `${window.location.origin}/payment/success?type=payment_link&amount=${formattedAmount}&currency=${paymentLinkForm.currency}`,
+        error_url: `${window.location.origin}/payment/error?type=payment_link&amount=${formattedAmount}&currency=${paymentLinkForm.currency}`,
         description: paymentLinkForm.description,
         client_reference: paymentLinkForm.client_reference || undefined
       }
@@ -522,21 +581,20 @@ export default function InvoicesPage() {
       if (paymentLinkForm.recipient_type === 'client' && paymentLinkForm.clientId) {
         const client = clients.find(c => c.id === paymentLinkForm.clientId)
         if (client) {
-          requestData.recipient_name = client.name
-          requestData.recipient_phone = client.phone
+          requestData.clientId = paymentLinkForm.clientId
+          requestData.restrict_payer_mobile = client.phone
         }
       } else if (paymentLinkForm.recipient_type === 'provider' && paymentLinkForm.providerId) {
         const provider = providers.find(p => p.id === paymentLinkForm.providerId)
         if (provider) {
-          requestData.recipient_name = provider.name
-          requestData.recipient_phone = provider.phone
+          requestData.providerId = paymentLinkForm.providerId
+          requestData.restrict_payer_mobile = provider.phone
         }
       } else if (paymentLinkForm.recipient_type === 'custom') {
-        requestData.recipient_name = paymentLinkForm.recipient_name
-        requestData.recipient_phone = paymentLinkForm.recipient_phone
+        requestData.restrict_payer_mobile = paymentLinkForm.recipient_phone
       }
 
-      const response = await fetch('/api/wave/create-payment-link', {
+      const response = await fetch('/api/wave/checkout/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestData)

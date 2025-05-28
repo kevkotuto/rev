@@ -100,14 +100,26 @@ interface WaveBalance {
 }
 
 interface SendMoneyFormData {
-  amount: number
-  recipient_mobile: string
-  recipient_name: string
+  receive_amount: number
+  mobile: string
+  name: string
   payment_reason: string
   type: 'provider_payment' | 'client_refund' | 'general_payment'
   providerId: string
   clientId: string
   projectId: string
+}
+
+interface CheckoutSessionFormData {
+  amount: string
+  currency: string
+  success_url: string
+  error_url: string
+  client_reference: string
+  restrict_payer_mobile: string
+  description: string
+  projectId: string
+  clientId: string
 }
 
 export default function WaveTransactionsPage() {
@@ -138,14 +150,28 @@ export default function WaveTransactionsPage() {
   // États pour l'envoi d'argent
   const [isSendMoneyDialogOpen, setIsSendMoneyDialogOpen] = useState(false)
   const [sendMoneyForm, setSendMoneyForm] = useState<SendMoneyFormData>({
-    amount: 0,
-    recipient_mobile: '',
-    recipient_name: '',
+    receive_amount: 0,
+    mobile: '',
+    name: '',
     payment_reason: '',
     type: 'general_payment',
     providerId: '',
     clientId: '',
     projectId: ''
+  })
+
+  // États pour les sessions checkout
+  const [isCheckoutDialogOpen, setIsCheckoutDialogOpen] = useState(false)
+  const [checkoutForm, setCheckoutForm] = useState<CheckoutSessionFormData>({
+    amount: '',
+    currency: 'XOF',
+    success_url: '',
+    error_url: '',
+    client_reference: '',
+    restrict_payer_mobile: '',
+    description: '',
+    projectId: '',
+    clientId: ''
   })
 
   // Données pour les selects
@@ -336,10 +362,11 @@ export default function WaveTransactionsPage() {
 
   const openSendMoneyDialog = (type: 'provider_payment' | 'client_refund' | 'general_payment' = 'general_payment') => {
     setSendMoneyForm({
-      amount: 0,
-      recipient_mobile: '',
-      recipient_name: '',
-      payment_reason: '',
+      receive_amount: 0,
+      mobile: '',
+      name: '',
+      payment_reason: type === 'provider_payment' ? 'Paiement prestataire' : 
+                     type === 'client_refund' ? 'Remboursement client' : '',
       type,
       providerId: '',
       clientId: '',
@@ -350,14 +377,45 @@ export default function WaveTransactionsPage() {
 
   const resetSendMoneyForm = () => {
     setSendMoneyForm({
-      amount: 0,
-      recipient_mobile: '',
-      recipient_name: '',
+      receive_amount: 0,
+      mobile: '',
+      name: '',
       payment_reason: '',
       type: 'general_payment',
       providerId: '',
       clientId: '',
       projectId: ''
+    })
+  }
+
+  const openCheckoutDialog = () => {
+    const timestamp = Date.now()
+    const baseUrl = window.location.origin
+    setCheckoutForm({
+      amount: '',
+      currency: 'XOF',
+      success_url: `${baseUrl}/wave-checkout/success?ref=${timestamp}`,
+      error_url: `${baseUrl}/wave-checkout/error?ref=${timestamp}`,
+      client_reference: `CHK-${timestamp}`,
+      restrict_payer_mobile: '',
+      description: 'Paiement via Wave Checkout',
+      projectId: '',
+      clientId: ''
+    })
+    setIsCheckoutDialogOpen(true)
+  }
+
+  const resetCheckoutForm = () => {
+    setCheckoutForm({
+      amount: '',
+      currency: 'XOF',
+      success_url: '',
+      error_url: '',
+      client_reference: '',
+      restrict_payer_mobile: '',
+      description: '',
+      projectId: '',
+      clientId: ''
     })
   }
 
@@ -417,7 +475,7 @@ export default function WaveTransactionsPage() {
 
   const handleSendMoney = async () => {
     try {
-      const response = await fetch('/api/wave/send-money', {
+      const response = await fetch('/api/wave/payout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(sendMoneyForm)
@@ -463,6 +521,196 @@ export default function WaveTransactionsPage() {
       console.error('Erreur:', error)
       toast.error('Erreur lors de l\'annulation')
     }
+  }
+
+  const handleCreateCheckout = async () => {
+    try {
+      const response = await fetch('/api/wave/checkout/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(checkoutForm)
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        toast.success(data.message)
+        
+        // Ouvrir l'URL Wave dans un nouvel onglet
+        if (data.checkout?.wave_launch_url) {
+          window.open(data.checkout.wave_launch_url, '_blank')
+        }
+        
+        setIsCheckoutDialogOpen(false)
+        resetCheckoutForm()
+        fetchTransactions()
+      } else {
+        const error = await response.json()
+        toast.error(error.message || 'Erreur lors de la création de la session checkout')
+      }
+    } catch (error) {
+      console.error('Erreur:', error)
+      toast.error('Erreur lors de la création de la session checkout')
+    }
+  }
+
+  // Fonctions d'auto-remplissage
+  const handleProviderSelect = (providerId: string) => {
+    const provider = providers.find(p => p.id === providerId)
+    if (provider) {
+      setSendMoneyForm(prev => ({
+        ...prev,
+        providerId,
+        mobile: provider.phone || prev.mobile,
+        name: provider.name || prev.name,
+        payment_reason: `Paiement à ${provider.name}`
+      }))
+    }
+  }
+
+  const handleClientSelect = (clientId: string, formType: 'sendMoney' | 'checkout') => {
+    const client = clients.find(c => c.id === clientId)
+    if (client) {
+      if (formType === 'sendMoney') {
+        setSendMoneyForm(prev => ({
+          ...prev,
+          clientId,
+          mobile: client.phone || prev.mobile,
+          name: client.name || prev.name,
+          payment_reason: `Remboursement à ${client.name}`
+        }))
+      } else if (formType === 'checkout') {
+        setCheckoutForm(prev => ({
+          ...prev,
+          clientId,
+          restrict_payer_mobile: client.phone || prev.restrict_payer_mobile,
+          description: `Paiement de ${client.name}`,
+          client_reference: `${client.name.replace(/\s+/g, '-').toUpperCase()}-${Date.now()}`
+        }))
+      }
+    }
+  }
+
+  const handleProjectSelect = (projectId: string, formType: 'sendMoney' | 'checkout') => {
+    const project = projects.find(p => p.id === projectId)
+    if (project) {
+      if (formType === 'sendMoney') {
+        setSendMoneyForm(prev => ({
+          ...prev,
+          projectId,
+          payment_reason: prev.payment_reason ? 
+            `${prev.payment_reason} - Projet: ${project.name}` : 
+            `Paiement pour projet ${project.name}`
+        }))
+      } else if (formType === 'checkout') {
+        setCheckoutForm(prev => ({
+          ...prev,
+          projectId,
+          description: `Paiement pour projet ${project.name}`,
+          client_reference: `${project.name.replace(/\s+/g, '-').toUpperCase()}-${Date.now()}`
+        }))
+      }
+    }
+  }
+
+  // Fonction pour détecter si une transaction a déjà été remboursée
+  const isTransactionRefunded = (transactionId: string) => {
+    return transactions.some(t => 
+      t.client_reference?.includes(transactionId) && 
+      t.payment_reason?.toLowerCase().includes('remboursement')
+    )
+  }
+
+  // Fonction pour détecter les transactions de remboursement
+  const isRefundTransaction = (transaction: WaveTransaction) => {
+    // Vérifier d'abord les mots-clés explicites de remboursement
+    const hasRefundKeywords = transaction.payment_reason?.toLowerCase().includes('remboursement') ||
+                             transaction.payment_reason?.toLowerCase().includes('refund')
+    
+    // Si c'est explicitement marqué comme remboursement, c'est un remboursement
+    if (hasRefundKeywords) return true
+    
+    // Si c'est une assignation locale de type expense avec des mots-clés de remboursement
+    if (transaction.localAssignment?.type === 'expense' && 
+        (transaction.localAssignment.description?.toLowerCase().includes('remboursement') ||
+         transaction.localAssignment.description?.toLowerCase().includes('refund'))) {
+      return true
+    }
+    
+    // Ne pas considérer les paiements prestataires comme des remboursements
+    if (transaction.payment_reason?.toLowerCase().includes('paiement') ||
+        transaction.payment_reason?.toLowerCase().includes('prestataire') ||
+        transaction.payment_reason?.toLowerCase().includes('provider') ||
+        transaction.localAssignment?.provider) {
+      return false
+    }
+    
+    // Les montants négatifs seuls ne suffisent plus à déterminer un remboursement
+    return false
+  }
+
+  // Fonction pour obtenir les actions disponibles pour une transaction
+  const getAvailableActions = (transaction: WaveTransaction) => {
+    const actions = []
+    const amount = parseFloat(transaction.amount)
+    const isRefunded = isTransactionRefunded(transaction.transaction_id)
+    const isRefund = isRefundTransaction(transaction)
+    
+    // Action d'assignation
+    if (!transaction.localAssignment) {
+      actions.push({
+        type: 'assign',
+        label: 'Assigner',
+        icon: 'Plus',
+        variant: 'default' as const
+      })
+    } else {
+      actions.push({
+        type: 'unassign',
+        label: 'Supprimer',
+        icon: 'Trash2',
+        variant: 'outline' as const
+      })
+    }
+    
+    // Action de remboursement
+    if (amount > 0 && !transaction.is_reversal && !isRefunded && !isRefund) {
+      actions.push({
+        type: 'refund',
+        label: 'Rembourser',
+        icon: 'RotateCcw',
+        variant: 'destructive' as const
+      })
+    }
+    
+    return actions
+  }
+
+  // Fonction pour obtenir le statut d'une transaction
+  const getTransactionStatus = (transaction: WaveTransaction) => {
+    const amount = parseFloat(transaction.amount)
+    const isRefunded = isTransactionRefunded(transaction.transaction_id)
+    const isRefund = isRefundTransaction(transaction)
+    
+    if (transaction.is_reversal) return { label: 'Annulation', color: 'purple' }
+    if (isRefunded) return { label: 'Remboursée', color: 'red' }
+    if (isRefund) return { label: 'Remboursement', color: 'orange' }
+    
+    // Détection spécifique des paiements prestataires
+    if (transaction.localAssignment?.provider || 
+        transaction.payment_reason?.toLowerCase().includes('prestataire') ||
+        transaction.payment_reason?.toLowerCase().includes('provider')) {
+      return { label: 'Paiement prestataire', color: 'blue' }
+    }
+    
+    // Détection des paiements clients
+    if (transaction.localAssignment?.client ||
+        transaction.payment_reason?.toLowerCase().includes('client')) {
+      return amount > 0 ? { label: 'Paiement reçu', color: 'green' } : { label: 'Paiement client', color: 'blue' }
+    }
+    
+    if (transaction.localAssignment) return { label: 'Assignée', color: 'blue' }
+    if (amount > 0) return { label: 'Reçu', color: 'green' }
+    return { label: 'Envoyé', color: 'gray' }
   }
 
   return (
@@ -573,15 +821,12 @@ export default function WaveTransactionsPage() {
               
               <Button 
                 size="sm" 
-                variant="destructive"
-                onClick={() => {
-                  // Logique pour annuler un paiement prestataire
-                  toast.info('Sélectionnez un paiement prestataire dans la liste pour l\'annuler')
-                }}
+                variant="secondary"
+                onClick={openCheckoutDialog}
                 className="flex items-center gap-1"
               >
-                <Ban className="h-3 w-3" />
-                Annuler paiement
+                <CreditCard className="h-3 w-3" />
+                Créer checkout
               </Button>
             </div>
           </CardContent>
@@ -695,16 +940,22 @@ export default function WaveTransactionsPage() {
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="font-medium">{transaction.transaction_id}</span>
-                        {transaction.is_reversal && (
-                          <Badge variant="outline" className="text-xs bg-purple-50 text-purple-600">
-                            Annulation
-                          </Badge>
-                        )}
-                        {transaction.localAssignment && (
-                          <Badge variant="default" className="text-xs">
-                            Assignée
-                          </Badge>
-                        )}
+                        {(() => {
+                          const status = getTransactionStatus(transaction)
+                          const colorClasses = {
+                            purple: "bg-purple-50 text-purple-600 border-purple-200",
+                            red: "bg-red-50 text-red-600 border-red-200",
+                            orange: "bg-orange-50 text-orange-600 border-orange-200",
+                            blue: "bg-blue-50 text-blue-600 border-blue-200",
+                            green: "bg-green-50 text-green-600 border-green-200",
+                            gray: "bg-gray-50 text-gray-600 border-gray-200"
+                          }
+                          return (
+                            <Badge variant="outline" className={`text-xs ${colorClasses[status.color as keyof typeof colorClasses]}`}>
+                              {status.label}
+                            </Badge>
+                          )
+                        })()}
                       </div>
                       
                       <div className="text-sm text-muted-foreground">
@@ -766,35 +1017,33 @@ export default function WaveTransactionsPage() {
                     </div>
 
                     <div className="flex flex-col gap-2">
-                      {!transaction.localAssignment ? (
-                        <Button
-                          size="sm"
-                          onClick={() => openAssignDialog(transaction)}
-                        >
-                          <Plus className="w-4 h-4 mr-1" />
-                          Assigner
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleUnassignTransaction(transaction.transaction_id)}
-                        >
-                          <Trash2 className="w-4 h-4 mr-1" />
-                          Supprimer
-                        </Button>
-                      )}
+                      {getAvailableActions(transaction).map((action, actionIndex) => {
+                        const IconComponent = action.icon === 'Plus' ? Plus : 
+                                            action.icon === 'Trash2' ? Trash2 : 
+                                            action.icon === 'RotateCcw' ? RotateCcw : Plus
+                        
+                        const handleClick = () => {
+                          if (action.type === 'assign') {
+                            openAssignDialog(transaction)
+                          } else if (action.type === 'unassign') {
+                            handleUnassignTransaction(transaction.transaction_id)
+                          } else if (action.type === 'refund') {
+                            handleRefundTransaction(transaction.transaction_id, transaction.amount)
+                          }
+                        }
 
-                      {parseFloat(transaction.amount) > 0 && !transaction.is_reversal && (
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() => handleRefundTransaction(transaction.transaction_id, transaction.amount)}
-                        >
-                          <RotateCcw className="w-4 h-4 mr-1" />
-                          Rembourser
-                        </Button>
-                      )}
+                        return (
+                          <Button
+                            key={actionIndex}
+                            size="sm"
+                            variant={action.variant}
+                            onClick={handleClick}
+                          >
+                            <IconComponent className="w-4 h-4 mr-1" />
+                            {action.label}
+                          </Button>
+                        )
+                      })}
                     </div>
                   </div>
                 </div>
@@ -846,23 +1095,45 @@ export default function WaveTransactionsPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="amount">Montant (XOF)</Label>
-                <Input
-                  id="amount"
-                  type="number"
-                  value={sendMoneyForm.amount || ''}
-                  onChange={(e) => setSendMoneyForm({...sendMoneyForm, amount: parseFloat(e.target.value) || 0})}
-                  placeholder="0"
-                />
+                <div className="relative">
+                  <Input
+                    id="amount"
+                    type="number"
+                    value={sendMoneyForm.receive_amount || ''}
+                    onChange={(e) => setSendMoneyForm({...sendMoneyForm, receive_amount: parseFloat(e.target.value) || 0})}
+                    placeholder="0"
+                    className={sendMoneyForm.receive_amount > 0 ? "border-green-300" : ""}
+                  />
+                  {sendMoneyForm.receive_amount > 0 && (
+                    <div className="absolute right-2 top-2 text-xs text-green-600">
+                      {formatCurrency(sendMoneyForm.receive_amount)}
+                    </div>
+                  )}
+                </div>
+                {sendMoneyForm.receive_amount > 1000000 && (
+                  <p className="text-xs text-orange-600">⚠️ Montant élevé - Vérifiez les limites de votre compte</p>
+                )}
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="recipient_mobile">Numéro de téléphone</Label>
-                <Input
-                  id="recipient_mobile"
-                  value={sendMoneyForm.recipient_mobile}
-                  onChange={(e) => setSendMoneyForm({...sendMoneyForm, recipient_mobile: e.target.value})}
-                  placeholder="+221761234567"
-                />
+                <div className="relative">
+                  <Input
+                    id="recipient_mobile"
+                    value={sendMoneyForm.mobile}
+                    onChange={(e) => setSendMoneyForm({...sendMoneyForm, mobile: e.target.value})}
+                    placeholder="+221761234567"
+                    className={sendMoneyForm.mobile.startsWith('+221') ? "border-green-300" : ""}
+                  />
+                  {sendMoneyForm.mobile && !sendMoneyForm.mobile.startsWith('+221') && (
+                    <div className="absolute right-2 top-2 text-xs text-orange-600">
+                      ⚠️
+                    </div>
+                  )}
+                </div>
+                {sendMoneyForm.mobile && !sendMoneyForm.mobile.startsWith('+221') && (
+                  <p className="text-xs text-orange-600">Format recommandé: +221XXXXXXXXX</p>
+                )}
               </div>
             </div>
 
@@ -870,8 +1141,8 @@ export default function WaveTransactionsPage() {
               <Label htmlFor="recipient_name">Nom du destinataire (optionnel)</Label>
               <Input
                 id="recipient_name"
-                value={sendMoneyForm.recipient_name}
-                onChange={(e) => setSendMoneyForm({...sendMoneyForm, recipient_name: e.target.value})}
+                value={sendMoneyForm.name}
+                onChange={(e) => setSendMoneyForm({...sendMoneyForm, name: e.target.value})}
                 placeholder="Nom du destinataire"
               />
             </div>
@@ -891,7 +1162,7 @@ export default function WaveTransactionsPage() {
                 <Label htmlFor="provider">Prestataire</Label>
                 <Select 
                   value={sendMoneyForm.providerId} 
-                  onValueChange={(value) => setSendMoneyForm({...sendMoneyForm, providerId: value})}
+                  onValueChange={handleProviderSelect}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Sélectionner un prestataire..." />
@@ -899,7 +1170,12 @@ export default function WaveTransactionsPage() {
                   <SelectContent>
                     {providers.filter(provider => provider.id && provider.id.trim() !== '').map((provider) => (
                       <SelectItem key={provider.id} value={provider.id}>
-                        {provider.name}
+                        <div className="flex flex-col">
+                          <span className="font-medium">{provider.name}</span>
+                          {provider.phone && (
+                            <span className="text-xs text-muted-foreground">{provider.phone}</span>
+                          )}
+                        </div>
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -912,7 +1188,7 @@ export default function WaveTransactionsPage() {
                 <Label htmlFor="client">Client</Label>
                 <Select 
                   value={sendMoneyForm.clientId} 
-                  onValueChange={(value) => setSendMoneyForm({...sendMoneyForm, clientId: value})}
+                  onValueChange={(value) => handleClientSelect(value, 'sendMoney')}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Sélectionner un client..." />
@@ -920,7 +1196,15 @@ export default function WaveTransactionsPage() {
                   <SelectContent>
                     {clients.filter(client => client.id && client.id.trim() !== '').map((client) => (
                       <SelectItem key={client.id} value={client.id}>
-                        {client.name}
+                        <div className="flex flex-col">
+                          <span className="font-medium">{client.name}</span>
+                          {client.phone && (
+                            <span className="text-xs text-muted-foreground">{client.phone}</span>
+                          )}
+                          {client.email && (
+                            <span className="text-xs text-muted-foreground">{client.email}</span>
+                          )}
+                        </div>
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -932,7 +1216,13 @@ export default function WaveTransactionsPage() {
               <Label htmlFor="project">Projet (optionnel)</Label>
               <Select 
                 value={sendMoneyForm.projectId || "none"} 
-                onValueChange={(value) => setSendMoneyForm({...sendMoneyForm, projectId: value === "none" ? "" : value})}
+                onValueChange={(value) => {
+                  if (value === "none") {
+                    setSendMoneyForm({...sendMoneyForm, projectId: ""})
+                  } else {
+                    handleProjectSelect(value, 'sendMoney')
+                  }
+                }}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Sélectionner un projet..." />
@@ -941,7 +1231,12 @@ export default function WaveTransactionsPage() {
                   <SelectItem value="none">Aucun projet</SelectItem>
                   {projects.filter(project => project.id && project.id.trim() !== '').map((project) => (
                     <SelectItem key={project.id} value={project.id}>
-                      {project.name}
+                      <div className="flex flex-col">
+                        <span className="font-medium">{project.name}</span>
+                        {project.description && (
+                          <span className="text-xs text-muted-foreground">{project.description}</span>
+                        )}
+                      </div>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -955,10 +1250,10 @@ export default function WaveTransactionsPage() {
             </Button>
             <Button 
               onClick={handleSendMoney}
-              disabled={!sendMoneyForm.amount || !sendMoneyForm.recipient_mobile}
+              disabled={!sendMoneyForm.receive_amount || !sendMoneyForm.mobile}
             >
               <Send className="w-4 h-4 mr-2" />
-              Envoyer {sendMoneyForm.amount ? formatCurrency(sendMoneyForm.amount) : ''}
+              Envoyer {sendMoneyForm.receive_amount ? formatCurrency(sendMoneyForm.receive_amount) : ''}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1126,6 +1421,204 @@ export default function WaveTransactionsPage() {
               disabled={!assignmentForm.description}
             >
               Assigner la transaction
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog de création de session checkout */}
+      <Dialog open={isCheckoutDialogOpen} onOpenChange={setIsCheckoutDialogOpen}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Créer une session checkout Wave</DialogTitle>
+            <DialogDescription>
+              Créez un lien de paiement Wave que vos clients peuvent utiliser pour payer
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="checkout_amount">Montant (XOF)</Label>
+                <div className="relative">
+                  <Input
+                    id="checkout_amount"
+                    type="number"
+                    value={checkoutForm.amount}
+                    onChange={(e) => setCheckoutForm({...checkoutForm, amount: e.target.value})}
+                    placeholder="1000"
+                    className={parseFloat(checkoutForm.amount) > 0 ? "border-green-300" : ""}
+                  />
+                  {parseFloat(checkoutForm.amount) > 0 && (
+                    <div className="absolute right-2 top-2 text-xs text-green-600">
+                      {formatCurrency(parseFloat(checkoutForm.amount))}
+                    </div>
+                  )}
+                </div>
+                {parseFloat(checkoutForm.amount) > 0 && parseFloat(checkoutForm.amount) < 100 && (
+                  <p className="text-xs text-orange-600">⚠️ Montant très faible</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="checkout_currency">Devise</Label>
+                <Select 
+                  value={checkoutForm.currency} 
+                  onValueChange={(value) => setCheckoutForm({...checkoutForm, currency: value})}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="XOF">XOF (Franc CFA)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="checkout_description">Description</Label>
+              <Input
+                id="checkout_description"
+                value={checkoutForm.description}
+                onChange={(e) => setCheckoutForm({...checkoutForm, description: e.target.value})}
+                placeholder="Description du paiement..."
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="checkout_success_url">URL de succès</Label>
+                <Input
+                  id="checkout_success_url"
+                  value={checkoutForm.success_url}
+                  onChange={(e) => setCheckoutForm({...checkoutForm, success_url: e.target.value})}
+                  placeholder="https://example.com/success"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="checkout_error_url">URL d'erreur</Label>
+                <Input
+                  id="checkout_error_url"
+                  value={checkoutForm.error_url}
+                  onChange={(e) => setCheckoutForm({...checkoutForm, error_url: e.target.value})}
+                  placeholder="https://example.com/error"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="checkout_client_reference">Référence client (optionnel)</Label>
+                <Input
+                  id="checkout_client_reference"
+                  value={checkoutForm.client_reference}
+                  onChange={(e) => setCheckoutForm({...checkoutForm, client_reference: e.target.value})}
+                  placeholder="REF-12345"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="checkout_restrict_mobile">Restreindre au mobile (optionnel)</Label>
+                <div className="relative">
+                  <Input
+                    id="checkout_restrict_mobile"
+                    value={checkoutForm.restrict_payer_mobile}
+                    onChange={(e) => setCheckoutForm({...checkoutForm, restrict_payer_mobile: e.target.value})}
+                    placeholder="+221761234567"
+                    className={checkoutForm.restrict_payer_mobile.startsWith('+221') ? "border-green-300" : ""}
+                  />
+                  {checkoutForm.restrict_payer_mobile && !checkoutForm.restrict_payer_mobile.startsWith('+221') && (
+                    <div className="absolute right-2 top-2 text-xs text-orange-600">
+                      ⚠️
+                    </div>
+                  )}
+                </div>
+                {checkoutForm.restrict_payer_mobile && (
+                  <p className="text-xs text-blue-600">🔒 Seul ce numéro pourra effectuer le paiement</p>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="checkout_project">Projet (optionnel)</Label>
+                <Select 
+                  value={checkoutForm.projectId || "none"} 
+                  onValueChange={(value) => {
+                    if (value === "none") {
+                      setCheckoutForm({...checkoutForm, projectId: ""})
+                    } else {
+                      handleProjectSelect(value, 'checkout')
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Sélectionner un projet..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Aucun projet</SelectItem>
+                    {projects.filter(project => project.id && project.id.trim() !== '').map((project) => (
+                      <SelectItem key={project.id} value={project.id}>
+                        <div className="flex flex-col">
+                          <span className="font-medium">{project.name}</span>
+                          {project.description && (
+                            <span className="text-xs text-muted-foreground">{project.description}</span>
+                          )}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="checkout_client">Client (optionnel)</Label>
+                <Select 
+                  value={checkoutForm.clientId || "none"} 
+                  onValueChange={(value) => {
+                    if (value === "none") {
+                      setCheckoutForm({...checkoutForm, clientId: ""})
+                    } else {
+                      handleClientSelect(value, 'checkout')
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Sélectionner un client..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Aucun client</SelectItem>
+                    {clients.filter(client => client.id && client.id.trim() !== '').map((client) => (
+                      <SelectItem key={client.id} value={client.id}>
+                        <div className="flex flex-col">
+                          <span className="font-medium">{client.name}</span>
+                          {client.phone && (
+                            <span className="text-xs text-muted-foreground">{client.phone}</span>
+                          )}
+                          {client.email && (
+                            <span className="text-xs text-muted-foreground">{client.email}</span>
+                          )}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsCheckoutDialogOpen(false)}>
+              Annuler
+            </Button>
+            <Button 
+              onClick={handleCreateCheckout}
+              disabled={!checkoutForm.amount || !checkoutForm.success_url || !checkoutForm.error_url}
+            >
+              <CreditCard className="w-4 h-4 mr-2" />
+              Créer session checkout
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -249,7 +249,15 @@ export default function DashboardPage() {
   const fetchWaveStats = async () => {
     setLoadingWaveStats(true)
     try {
-      const response = await fetch('/api/wave/stats')
+      const dateRange = getDateRangeForPeriod(selectedPeriod)
+      const params = new URLSearchParams()
+      
+      if (dateRange.startDate) params.append('startDate', dateRange.startDate)
+      if (dateRange.endDate) params.append('endDate', dateRange.endDate)
+      
+      const url = `/api/wave/stats${params.toString() ? `?${params.toString()}` : ''}`
+      const response = await fetch(url)
+      
       if (response.ok) {
         const data = await response.json()
         setWaveStats(data)
@@ -901,8 +909,8 @@ export default function DashboardPage() {
         </motion.div>
       </div>
 
-      {/* Section Wave Transactions */}
-      {waveStats && (
+      {/* Section Wave Analytics */}
+      {waveStats && waveStats.totalTransactions > 0 && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -912,90 +920,254 @@ export default function DashboardPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Zap className="h-5 w-5 text-orange-600" />
-                Transactions Wave
+                Analytics Wave
                 <Badge variant="outline" className="ml-auto">
-                  {waveStats.totalTransactions} transactions
+                  {waveStats.totalTransactions} transactions assignées
                 </Badge>
               </CardTitle>
               <CardDescription>
-                Aperçu de votre activité Wave CI
+                Analyse de vos transactions Wave assignées pour la période sélectionnée
+                {waveStats.period?.totalDays && (
+                  <span className="ml-2 text-orange-600">
+                    • {waveStats.period.totalDays} jours
+                  </span>
+                )}
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-3 mb-6">
+            <CardContent className="space-y-6">
+              {/* Métriques principales */}
+              <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-4">
                 <div className="text-center p-3 sm:p-4 bg-white rounded-lg border">
                   <div className="text-xl sm:text-2xl font-bold text-green-600">
                     {formatCurrency(waveStats.totalRevenue)}
                   </div>
                   <p className="text-xs sm:text-sm text-muted-foreground">Revenus Wave</p>
+                  <p className="text-xs text-green-600 mt-1">
+                    {waveStats.transactionsByType.revenue} transactions
+                  </p>
                 </div>
                 <div className="text-center p-3 sm:p-4 bg-white rounded-lg border">
                   <div className="text-xl sm:text-2xl font-bold text-red-600">
                     {formatCurrency(waveStats.totalExpenses)}
                   </div>
                   <p className="text-xs sm:text-sm text-muted-foreground">Dépenses Wave</p>
+                  <p className="text-xs text-red-600 mt-1">
+                    {waveStats.transactionsByType.expense} transactions
+                  </p>
                 </div>
                 <div className="text-center p-3 sm:p-4 bg-white rounded-lg border">
                   <div className={`text-xl sm:text-2xl font-bold ${waveStats.netAmount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                     {formatCurrency(waveStats.netAmount)}
                   </div>
                   <p className="text-xs sm:text-sm text-muted-foreground">Net Wave</p>
+                  <p className={`text-xs mt-1 ${waveStats.netAmount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {waveStats.netAmount >= 0 ? 'Bénéfice' : 'Déficit'}
+                  </p>
+                </div>
+                <div className="text-center p-3 sm:p-4 bg-white rounded-lg border">
+                  <div className="text-xl sm:text-2xl font-bold text-blue-600">
+                    {waveStats.period?.totalDays ? 
+                      Math.round(waveStats.totalTransactions / waveStats.period.totalDays * 7) : 
+                      waveStats.totalTransactions
+                    }
+                  </div>
+                  <p className="text-xs sm:text-sm text-muted-foreground">
+                    {waveStats.period?.totalDays ? 'Transactions/semaine' : 'Total transactions'}
+                  </p>
+                  <p className="text-xs text-blue-600 mt-1">
+                    Moyenne calculée
+                  </p>
                 </div>
               </div>
 
-              {waveStats.recentTransactions.length > 0 && (
-                <div>
-                  <h4 className="font-medium mb-3 flex items-center gap-2">
-                    <Clock className="h-4 w-4" />
-                    Transactions récentes
-                  </h4>
-                  <div className="space-y-2">
-                    {waveStats.recentTransactions.slice(0, 3).map((transaction: any) => (
-                      <div key={transaction.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-white rounded-lg border">
-                        <div className="flex items-center gap-3 min-w-0 flex-1">
-                          <div className={`w-2 h-2 rounded-full shrink-0 ${transaction.type === 'revenue' ? 'bg-green-500' : 'bg-red-500'}`} />
+              {/* Top projets et clients */}
+              <div className="grid gap-4 md:grid-cols-2">
+                {/* Top projets */}
+                {waveStats.projectStats.length > 0 && (
+                  <div className="bg-white rounded-lg border p-4">
+                    <h4 className="font-medium mb-3 flex items-center gap-2">
+                      <FolderOpen className="h-4 w-4 text-blue-600" />
+                      Top projets Wave
+                    </h4>
+                    <div className="space-y-2">
+                      {waveStats.projectStats.slice(0, 3).map((project: any, index: number) => (
+                        <div key={index} className="flex items-center justify-between">
                           <div className="min-w-0 flex-1">
-                            <p className="font-medium text-sm truncate">{transaction.description}</p>
-                            <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 text-xs text-muted-foreground">
-                              <span>{new Date(transaction.timestamp).toLocaleDateString('fr-FR')}</span>
-                              {transaction.counterpartyName && (
-                                <span className="hidden sm:inline">• {transaction.counterpartyName}</span>
-                              )}
-                              {transaction.project && (
-                                <span className="hidden sm:inline">• {transaction.project.name}</span>
-                              )}
-                              {transaction.counterpartyName && (
-                                <span className="sm:hidden truncate">{transaction.counterpartyName}</span>
-                              )}
-                            </div>
+                            <p className="font-medium text-sm truncate">{project.projectName}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {project.transactionCount} transactions
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className={`font-medium text-sm ${project.totalAmount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {formatCurrency(Math.abs(project.totalAmount))}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Net: {formatCurrency(project.revenue - project.expenses)}
+                            </p>
                           </div>
                         </div>
-                        <div className={`font-medium text-sm sm:text-base shrink-0 ${transaction.type === 'revenue' ? 'text-green-600' : 'text-red-600'}`}>
-                          {transaction.type === 'revenue' ? '+' : '-'}{formatCurrency(Math.abs(transaction.amount))}
-                        </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                  <div className="mt-4 text-center">
-                    <Button variant="outline" size="sm" onClick={() => window.location.href = '/wave-transactions'}>
-                      Voir toutes les transactions Wave
-                    </Button>
-                  </div>
-                </div>
-              )}
+                )}
 
-              {waveStats.recentTransactions.length === 0 && (
-                <div className="text-center py-8">
-                  <Zap className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-medium mb-2">Aucune transaction Wave</h3>
-                  <p className="text-muted-foreground mb-4">
-                    Commencez à utiliser Wave CI pour voir vos transactions ici
-                  </p>
-                  <Button onClick={() => window.location.href = '/wave-transactions'}>
-                    Configurer Wave CI
+                {/* Top clients */}
+                {waveStats.clientStats.length > 0 && (
+                  <div className="bg-white rounded-lg border p-4">
+                    <h4 className="font-medium mb-3 flex items-center gap-2">
+                      <Users className="h-4 w-4 text-green-600" />
+                      Top clients Wave
+                    </h4>
+                    <div className="space-y-2">
+                      {waveStats.clientStats.slice(0, 3).map((client: any, index: number) => (
+                        <div key={index} className="flex items-center justify-between">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-sm truncate">{client.clientName}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {client.transactionCount} transactions
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-medium text-sm text-green-600">
+                              {formatCurrency(client.revenue)}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Revenus
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Top prestataires */}
+                {waveStats.providerStats.length > 0 && (
+                  <div className="bg-white rounded-lg border p-4">
+                    <h4 className="font-medium mb-3 flex items-center gap-2">
+                      <UserCheck className="h-4 w-4 text-purple-600" />
+                      Top prestataires Wave
+                    </h4>
+                    <div className="space-y-2">
+                      {waveStats.providerStats.slice(0, 3).map((provider: any, index: number) => (
+                        <div key={index} className="flex items-center justify-between">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-sm truncate">{provider.providerName}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {provider.transactionCount} paiements
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-medium text-sm text-red-600">
+                              {formatCurrency(provider.expenses)}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Payé
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Évolution temporelle */}
+                {Object.keys(waveStats.timeSeriesData).length > 0 && (
+                  <div className="bg-white rounded-lg border p-4">
+                    <h4 className="font-medium mb-3 flex items-center gap-2">
+                      <BarChart3 className="h-4 w-4 text-orange-600" />
+                      Évolution Wave
+                    </h4>
+                    <div className="space-y-2 max-h-32 overflow-y-auto">
+                      {Object.entries(waveStats.timeSeriesData)
+                        .sort(([a], [b]) => b.localeCompare(a))
+                        .slice(0, 5)
+                        .map(([period, data]: [string, any]) => (
+                        <div key={period} className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">
+                            {new Date(period).toLocaleDateString('fr-FR')}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-green-600">+{formatCurrency(data.revenue)}</span>
+                            <span className="text-red-600">-{formatCurrency(data.expenses)}</span>
+                            <span className={`font-medium ${data.net >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              = {formatCurrency(Math.abs(data.net))}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Actions rapides */}
+              <div className="flex flex-col sm:flex-row gap-2 pt-4 border-t">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => window.location.href = '/wave-transactions'}
+                  className="flex items-center gap-2"
+                >
+                  <Zap className="h-4 w-4" />
+                  Gérer les transactions Wave
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => {
+                    fetchWaveBalance()
+                    fetchWaveStats()
+                  }}
+                  disabled={loadingWaveStats}
+                  className="flex items-center gap-2"
+                >
+                  <RefreshCw className={`h-4 w-4 ${loadingWaveStats ? 'animate-spin' : ''}`} />
+                  Actualiser les données
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+
+      {/* Message si pas de données Wave */}
+      {waveStats && waveStats.totalTransactions === 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 1.3 }}
+        >
+          <Card className="border-orange-200 bg-orange-50/50">
+            <CardContent className="text-center py-8">
+              <Zap className="mx-auto h-12 w-12 text-orange-400 mb-4" />
+              <h3 className="text-lg font-medium mb-2">Aucune transaction Wave assignée</h3>
+              <p className="text-muted-foreground mb-4">
+                {selectedPeriod === 'global' 
+                  ? 'Vous n\'avez pas encore assigné de transactions Wave à votre comptabilité.'
+                  : `Aucune transaction Wave assignée pour la période sélectionnée (${predefinedPeriods.find(p => p.value === selectedPeriod)?.label}).`
+                }
+              </p>
+              <div className="flex flex-col sm:flex-row gap-2 justify-center">
+                <Button 
+                  onClick={() => window.location.href = '/wave-transactions'}
+                  className="flex items-center gap-2"
+                >
+                  <Zap className="h-4 w-4" />
+                  Assigner des transactions Wave
+                </Button>
+                {selectedPeriod !== 'global' && (
+                  <Button 
+                    variant="outline"
+                    onClick={() => setSelectedPeriod('global')}
+                    className="flex items-center gap-2"
+                  >
+                    <Calendar className="h-4 w-4" />
+                    Voir toutes les données
                   </Button>
-                </div>
-              )}
+                )}
+              </div>
             </CardContent>
           </Card>
         </motion.div>

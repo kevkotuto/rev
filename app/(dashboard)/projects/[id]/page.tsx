@@ -482,19 +482,36 @@ export default function ProjectDetailPage() {
     if (!confirm(`Effectuer un paiement Wave de ${formatCurrency(amount)} à ce prestataire ?`)) return
 
     try {
-      const response = await fetch(`/api/providers/${providerId}/payout`, {
+      // Récupérer les informations du prestataire
+      const provider = project?.projectProviders.find(pp => pp.id === projectProviderId)?.provider
+      if (!provider) {
+        toast.error('Prestataire non trouvé')
+        return
+      }
+
+      const response = await fetch('/api/wave/payout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          amount,
-          projectProviderId,
-          notes: `Paiement Wave pour projet ${project?.name}`
+          receive_amount: amount,
+          mobile: provider.phone,
+          name: provider.name,
+          payment_reason: `Paiement Wave pour projet ${project?.name}`,
+          type: 'provider_payment',
+          providerId: providerId,
+          projectId: projectId
         })
       })
 
       if (response.ok) {
         const result = await response.json()
-        toast.success(result.message)
+        toast.success(result.message || 'Paiement Wave initié avec succès')
+        
+        // Marquer le prestataire comme payé dans le projet si le paiement a réussi
+        if (result.waveData?.status === 'succeeded') {
+          await handleMarkProviderAsPaid(projectProviderId)
+        }
+        
         fetchProject()
       } else {
         const error = await response.json()
@@ -533,8 +550,37 @@ export default function ProjectDetailPage() {
         })
         fetchProject()
 
-        if (result.paymentLink) {
-          window.open(result.paymentLink, '_blank')
+        // Utiliser le nouveau système de checkout si un lien de paiement est demandé
+        if (advancePaymentForm.generatePaymentLink && result.invoice) {
+          try {
+            const checkoutResponse = await fetch('/api/wave/checkout/sessions', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                amount: advancePaymentForm.amount,
+                currency: 'XOF',
+                success_url: `${window.location.origin}/payment/success?invoice=${result.invoice.id}`,
+                error_url: `${window.location.origin}/payment/error?invoice=${result.invoice.id}`,
+                client_reference: result.invoice.invoiceNumber,
+                description: advancePaymentForm.description,
+                projectId: projectId,
+                clientId: project?.client?.id
+              })
+            })
+
+            if (checkoutResponse.ok) {
+              const checkoutData = await checkoutResponse.json()
+              if (checkoutData.wave_launch_url) {
+                window.open(checkoutData.wave_launch_url, '_blank')
+              }
+            }
+          } catch (checkoutError) {
+            console.error('Erreur lors de la création du checkout:', checkoutError)
+            // Fallback vers l'ancien système si disponible
+            if (result.paymentLink) {
+              window.open(result.paymentLink, '_blank')
+            }
+          }
         }
       } else {
         const error = await response.json()
