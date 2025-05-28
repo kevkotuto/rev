@@ -39,6 +39,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { motion } from "motion/react"
 import { toast } from "sonner"
+import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 
 interface Client {
   id: string
@@ -72,6 +73,8 @@ export default function ClientsPage() {
     notes: "",
     photo: ""
   })
+
+  const { confirm, ConfirmDialog } = useConfirmDialog()
 
   useEffect(() => {
     fetchClients()
@@ -139,23 +142,29 @@ export default function ClientsPage() {
   }
 
   const handleDeleteClient = async (clientId: string) => {
-    if (!confirm('Êtes-vous sûr de vouloir supprimer ce client ?')) return
+    confirm({
+      title: "Supprimer le client",
+      description: "Êtes-vous sûr de vouloir supprimer ce client ? Cette action est irréversible.",
+      confirmText: "Supprimer",
+      variant: "destructive",
+      onConfirm: async () => {
+        try {
+          const response = await fetch(`/api/clients/${clientId}`, {
+            method: 'DELETE'
+          })
 
-    try {
-      const response = await fetch(`/api/clients/${clientId}`, {
-        method: 'DELETE'
-      })
-
-      if (response.ok) {
-        toast.success('Client supprimé avec succès')
-        fetchClients()
-      } else {
-        toast.error('Erreur lors de la suppression du client')
+          if (response.ok) {
+            toast.success('Client supprimé avec succès')
+            fetchClients()
+          } else {
+            toast.error('Erreur lors de la suppression du client')
+          }
+        } catch (error) {
+          console.error('Erreur:', error)
+          toast.error('Erreur lors de la suppression du client')
+        }
       }
-    } catch (error) {
-      console.error('Erreur:', error)
-      toast.error('Erreur lors de la suppression du client')
-    }
+    })
   }
 
   const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -230,30 +239,32 @@ export default function ClientsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Clients</h1>
-          <p className="text-muted-foreground">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight truncate">Clients</h1>
+          <p className="text-sm sm:text-base text-muted-foreground mt-1">
             Gérez vos clients et leurs informations
           </p>
         </div>
         <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
           <DialogTrigger asChild>
-            <Button onClick={() => resetForm()}>
+            <Button onClick={() => resetForm()} className="w-full sm:w-auto">
               <Plus className="mr-2 h-4 w-4" />
-              Nouveau client
+              <span className="hidden sm:inline">Nouveau client</span>
+              <span className="sm:hidden">Nouveau</span>
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[425px]">
+          <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-hidden">
             <DialogHeader>
               <DialogTitle>Nouveau client</DialogTitle>
               <DialogDescription>
                 Créez un nouveau client pour votre portefeuille.
               </DialogDescription>
             </DialogHeader>
-            <div className="grid gap-4 py-4">
+            <div className="overflow-y-auto max-h-[60vh] px-1">
+              <div className="grid gap-4 py-4">
               {/* Photo */}
               <div className="grid gap-2">
                 <Label>Photo du client</Label>
@@ -357,11 +368,12 @@ export default function ClientsPage() {
                 />
               </div>
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
+            </div>
+            <DialogFooter className="flex-col sm:flex-row gap-2">
+              <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)} className="w-full sm:w-auto">
                 Annuler
               </Button>
-              <Button onClick={handleCreateClient} disabled={!formData.name || !formData.email}>
+              <Button onClick={handleCreateClient} disabled={!formData.name || !formData.email} className="w-full sm:w-auto">
                 Créer
               </Button>
             </DialogFooter>
@@ -371,7 +383,7 @@ export default function ClientsPage() {
 
       {/* Search */}
       <div className="flex items-center space-x-2">
-        <div className="relative flex-1 max-w-sm">
+        <div className="relative flex-1 max-w-full sm:max-w-sm">
           <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Rechercher un client..."
@@ -383,7 +395,7 @@ export default function ClientsPage() {
       </div>
 
       {/* Clients Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {filteredClients.map((client, index) => (
           <motion.div
             key={client.id}
@@ -391,25 +403,25 @@ export default function ClientsPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: index * 0.1 }}
           >
-            <Card className="hover:shadow-md transition-shadow">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <div className="flex items-center space-x-3">
-                  <Avatar className="h-10 w-10">
+            <Card className="hover:shadow-md transition-shadow h-full">
+              <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3">
+                <div className="flex items-center space-x-3 min-w-0 flex-1">
+                  <Avatar className="h-10 w-10 shrink-0">
                     <AvatarImage src={client.photo} />
                     <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-500 text-white">
                       {client.name.charAt(0).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
-                  <div>
-                    <CardTitle className="text-base">{client.name}</CardTitle>
+                  <div className="min-w-0 flex-1">
+                    <CardTitle className="text-sm sm:text-base truncate">{client.name}</CardTitle>
                     {client.company && (
-                      <CardDescription className="text-sm">{client.company}</CardDescription>
+                      <CardDescription className="text-xs sm:text-sm truncate">{client.company}</CardDescription>
                     )}
                   </div>
                 </div>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" className="h-8 w-8 p-0">
+                    <Button variant="ghost" className="h-8 w-8 p-0 shrink-0">
                       <MoreHorizontal className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
@@ -432,26 +444,26 @@ export default function ClientsPage() {
                   </DropdownMenuContent>
                 </DropdownMenu>
               </CardHeader>
-              <CardContent>
+              <CardContent className="pt-0">
                 <div className="space-y-2">
-                  <div className="flex items-center text-sm text-muted-foreground">
-                    <Mail className="mr-2 h-3 w-3" />
-                    {client.email}
+                  <div className="flex items-center text-xs sm:text-sm text-muted-foreground">
+                    <Mail className="mr-2 h-3 w-3 shrink-0" />
+                    <span className="truncate">{client.email}</span>
                   </div>
                   {client.phone && (
-                    <div className="flex items-center text-sm text-muted-foreground">
-                      <Phone className="mr-2 h-3 w-3" />
-                      {client.phone}
+                    <div className="flex items-center text-xs sm:text-sm text-muted-foreground">
+                      <Phone className="mr-2 h-3 w-3 shrink-0" />
+                      <span className="truncate">{client.phone}</span>
                     </div>
                   )}
                   {client.address && (
-                    <div className="flex items-center text-sm text-muted-foreground">
-                      <MapPin className="mr-2 h-3 w-3" />
-                      {client.address.substring(0, 30)}...
+                    <div className="flex items-center text-xs sm:text-sm text-muted-foreground">
+                      <MapPin className="mr-2 h-3 w-3 shrink-0" />
+                      <span className="truncate">{client.address.substring(0, 30)}...</span>
                     </div>
                   )}
-                  <div className="flex items-center justify-between pt-2">
-                    <Badge variant="secondary">
+                  <div className="flex items-center justify-between pt-2 border-t">
+                    <Badge variant="secondary" className="text-xs">
                       {client._count.projects} projet{client._count.projects !== 1 ? 's' : ''}
                     </Badge>
                     <span className="text-xs text-muted-foreground">
@@ -477,14 +489,15 @@ export default function ClientsPage() {
 
       {/* Edit Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-hidden">
           <DialogHeader>
             <DialogTitle>Modifier le client</DialogTitle>
             <DialogDescription>
               Modifiez les informations du client.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
+          <div className="overflow-y-auto max-h-[60vh] px-1">
+            <div className="grid gap-4 py-4">
             {/* Photo */}
             <div className="grid gap-2">
               <Label>Photo du client</Label>
@@ -588,16 +601,19 @@ export default function ClientsPage() {
               />
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+          </div>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)} className="w-full sm:w-auto">
               Annuler
             </Button>
-            <Button onClick={handleUpdateClient} disabled={!formData.name || !formData.email}>
+            <Button onClick={handleUpdateClient} disabled={!formData.name || !formData.email} className="w-full sm:w-auto">
               Sauvegarder
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog />
     </div>
   )
 } 

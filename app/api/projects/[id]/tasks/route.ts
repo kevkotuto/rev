@@ -15,7 +15,7 @@ const taskSchema = z.object({
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -27,10 +27,12 @@ export async function GET(
       )
     }
 
+    const { id } = await params
+
     // Vérifier que le projet appartient à l'utilisateur
     const project = await prisma.project.findFirst({
       where: {
-        id: params.id,
+        id: id,
         userId: session.user.id
       }
     })
@@ -45,7 +47,7 @@ export async function GET(
     // Récupérer toutes les tâches du projet avec leurs sous-tâches
     const tasks = await prisma.task.findMany({
       where: {
-        projectId: params.id,
+        projectId: id,
         userId: session.user.id
       },
       include: {
@@ -95,7 +97,7 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -107,10 +109,12 @@ export async function POST(
       )
     }
 
+    const { id } = await params
+
     // Vérifier que le projet appartient à l'utilisateur
     const project = await prisma.project.findFirst({
       where: {
-        id: params.id,
+        id: id,
         userId: session.user.id
       }
     })
@@ -130,7 +134,7 @@ export async function POST(
       const parentTask = await prisma.task.findFirst({
         where: {
           id: validatedData.parentId,
-          projectId: params.id,
+          projectId: id,
           userId: session.user.id
         }
       })
@@ -146,7 +150,7 @@ export async function POST(
     const task = await prisma.task.create({
       data: {
         ...validatedData,
-        projectId: params.id,
+        projectId: id,
         userId: session.user.id,
         dueDate: validatedData.dueDate ? new Date(validatedData.dueDate) : null,
         parentId: validatedData.parentId || null

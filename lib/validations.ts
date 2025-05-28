@@ -67,17 +67,31 @@ export const providerSchema = z.object({
 
 // Invoice schemas
 export const invoiceSchema = z.object({
-  type: z.enum(["PROFORMA", "INVOICE"]),
-  amount: z.number().min(0, "Le montant doit être positif"),
+  type: z.enum(["PROFORMA", "INVOICE"], {
+    errorMap: () => ({ message: "Le type doit être 'PROFORMA' ou 'INVOICE'" })
+  }),
+  amount: z.number({
+    required_error: "Le montant est requis",
+    invalid_type_error: "Le montant doit être un nombre"
+  }).min(0.01, "Le montant doit être supérieur à 0"),
   dueDate: z.string().optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
   paidDate: z.string().optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
   projectId: z.string().optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
   notes: z.string().optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
-  clientName: z.string().optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
-  clientEmail: z.string().email("Email invalide").optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
+  clientName: z.string().min(1, "Le nom du client est requis").optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
+  clientEmail: z.string().email("Format d'email invalide").optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
   clientAddress: z.string().optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
   clientPhone: z.string().optional().or(z.literal("")).transform(val => val === "" ? undefined : val),
-  generatePaymentLink: z.boolean().optional(),
+  generatePaymentLink: z.boolean().default(false),
+}).refine((data) => {
+  // Si aucun projet n'est sélectionné, le nom du client devient obligatoire
+  if (!data.projectId && !data.clientName) {
+    return false
+  }
+  return true
+}, {
+  message: "Le nom du client est requis si aucun projet n'est sélectionné",
+  path: ["clientName"]
 })
 
 // Expense schemas

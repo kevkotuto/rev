@@ -172,20 +172,22 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" asChild>
-              <a href="/dashboard">
-                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 text-sidebar-primary-foreground">
-                  <Building2 className="size-4" />
-                </div>
-                <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-semibold">REV</span>
-                  <span className="truncate text-xs">Gestion Freelance</span>
-                </div>
-                <div className="ml-auto">
-                  <NotificationsPopover />
-                </div>
-              </a>
-            </SidebarMenuButton>
+            <div className="flex items-center gap-2 p-2">
+              <SidebarMenuButton size="lg" asChild className="flex-1">
+                <a href="/dashboard">
+                  <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 text-sidebar-primary-foreground">
+                    <Building2 className="size-4" />
+                  </div>
+                  <div className="grid flex-1 text-left text-sm leading-tight">
+                    <span className="truncate font-semibold">REV</span>
+                    <span className="truncate text-xs">Gestion Freelance</span>
+                  </div>
+                </a>
+              </SidebarMenuButton>
+              <div className="shrink-0">
+                <NotificationsPopover />
+              </div>
+            </div>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>

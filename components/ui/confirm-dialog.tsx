@@ -2,81 +2,83 @@
 
 import { useState } from "react"
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { LoadingSpinner } from "@/components/ui/loading"
+import { AlertTriangle } from "lucide-react"
 
 interface ConfirmDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  title: string
-  description: string
+  title?: string
+  description?: string
   confirmText?: string
   cancelText?: string
   variant?: "default" | "destructive"
-  onConfirm: () => Promise<void> | void
+  onConfirm: () => void | Promise<void>
+  loading?: boolean
 }
 
 export function ConfirmDialog({
   open,
   onOpenChange,
-  title,
-  description,
+  title = "Êtes-vous sûr ?",
+  description = "Cette action ne peut pas être annulée.",
   confirmText = "Confirmer",
   cancelText = "Annuler",
   variant = "default",
-  onConfirm
+  onConfirm,
+  loading = false
 }: ConfirmDialogProps) {
-  const [loading, setLoading] = useState(false)
+  const [isConfirming, setIsConfirming] = useState(false)
 
   const handleConfirm = async () => {
+    setIsConfirming(true)
     try {
-      setLoading(true)
       await onConfirm()
       onOpenChange(false)
     } catch (error) {
-      console.error("Erreur lors de la confirmation:", error)
+      // L'erreur sera gérée par le composant parent
     } finally {
-      setLoading(false)
+      setIsConfirming(false)
     }
   }
 
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{title}</AlertDialogTitle>
-          <AlertDialogDescription>{description}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={loading}>
-            {cancelText}
-          </AlertDialogCancel>
-          <AlertDialogAction
-            onClick={handleConfirm}
-            disabled={loading}
-            className={variant === "destructive" ? "bg-red-600 hover:bg-red-700" : ""}
-          >
-            {loading ? (
-              <>
-                <LoadingSpinner size="sm" className="mr-2" />
-                Chargement...
-              </>
-            ) : (
-              confirmText
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            {variant === "destructive" && (
+              <AlertTriangle className="h-5 w-5 text-red-600" />
             )}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+            {title}
+          </DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={isConfirming || loading}
+          >
+            {cancelText}
+          </Button>
+          <Button
+            variant={variant === "destructive" ? "destructive" : "default"}
+            onClick={handleConfirm}
+            disabled={isConfirming || loading}
+          >
+            {isConfirming ? "En cours..." : confirmText}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -84,30 +86,40 @@ export function ConfirmDialog({
 export function useConfirmDialog() {
   const [dialogState, setDialogState] = useState<{
     open: boolean
-    title: string
-    description: string
+    title?: string
+    description?: string
     confirmText?: string
+    cancelText?: string
     variant?: "default" | "destructive"
-    onConfirm: () => Promise<void> | void
+    onConfirm?: () => void | Promise<void>
   }>({
-    open: false,
-    title: "",
-    description: "",
-    onConfirm: () => {}
+    open: false
   })
 
-  const confirm = (options: Omit<typeof dialogState, "open">) => {
-    setDialogState({ ...options, open: true })
-  }
-
-  const close = () => {
-    setDialogState(prev => ({ ...prev, open: false }))
+  const confirm = (options: {
+    title?: string
+    description?: string
+    confirmText?: string
+    cancelText?: string
+    variant?: "default" | "destructive"
+    onConfirm: () => void | Promise<void>
+  }) => {
+    setDialogState({
+      open: true,
+      ...options
+    })
   }
 
   const ConfirmDialogComponent = () => (
     <ConfirmDialog
-      {...dialogState}
-      onOpenChange={close}
+      open={dialogState.open}
+      onOpenChange={(open) => setDialogState(prev => ({ ...prev, open }))}
+      title={dialogState.title}
+      description={dialogState.description}
+      confirmText={dialogState.confirmText}
+      cancelText={dialogState.cancelText}
+      variant={dialogState.variant}
+      onConfirm={dialogState.onConfirm || (() => {})}
     />
   )
 

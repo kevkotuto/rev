@@ -46,6 +46,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { motion } from "motion/react"
 import { toast } from "sonner"
+import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 
 interface Project {
   id: string
@@ -95,6 +96,8 @@ export default function ProjectsPage() {
     endDate: "",
     logo: ""
   })
+
+  const { confirm, ConfirmDialog } = useConfirmDialog()
 
   useEffect(() => {
     fetchProjects()
@@ -191,23 +194,29 @@ export default function ProjectsPage() {
   }
 
   const handleDeleteProject = async (projectId: string) => {
-    if (!confirm('Êtes-vous sûr de vouloir supprimer ce projet ?')) return
+    confirm({
+      title: "Supprimer le projet",
+      description: "Êtes-vous sûr de vouloir supprimer ce projet ? Cette action est irréversible.",
+      confirmText: "Supprimer",
+      variant: "destructive",
+      onConfirm: async () => {
+        try {
+          const response = await fetch(`/api/projects/${projectId}`, {
+            method: 'DELETE'
+          })
 
-    try {
-      const response = await fetch(`/api/projects/${projectId}`, {
-        method: 'DELETE'
-      })
-
-      if (response.ok) {
-        toast.success('Projet supprimé avec succès')
-        fetchProjects()
-      } else {
-        toast.error('Erreur lors de la suppression du projet')
+          if (response.ok) {
+            toast.success('Projet supprimé avec succès')
+            fetchProjects()
+          } else {
+            toast.error('Erreur lors de la suppression du projet')
+          }
+        } catch (error) {
+          console.error('Erreur:', error)
+          toast.error('Erreur lors de la suppression du projet')
+        }
       }
-    } catch (error) {
-      console.error('Erreur:', error)
-      toast.error('Erreur lors de la suppression du projet')
-    }
+    })
   }
 
   const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -322,30 +331,32 @@ export default function ProjectsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Projets</h1>
-          <p className="text-muted-foreground">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight truncate">Projets</h1>
+          <p className="text-sm sm:text-base text-muted-foreground mt-1">
             Gérez vos projets et suivez leur progression
           </p>
         </div>
         <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
           <DialogTrigger asChild>
-            <Button onClick={() => resetForm()}>
+            <Button onClick={() => resetForm()} className="w-full sm:w-auto">
               <Plus className="mr-2 h-4 w-4" />
-              Nouveau projet
+              <span className="hidden sm:inline">Nouveau projet</span>
+              <span className="sm:hidden">Nouveau</span>
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[500px]">
+          <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-hidden">
             <DialogHeader>
               <DialogTitle>Nouveau projet</DialogTitle>
               <DialogDescription>
                 Créez un nouveau projet pour votre portefeuille.
               </DialogDescription>
             </DialogHeader>
-            <div className="grid gap-4 py-4">
+            <div className="overflow-y-auto max-h-[65vh] px-1">
+              <div className="grid gap-4 py-4">
               <div className="grid gap-2">
                 <Label htmlFor="name">Nom du projet *</Label>
                 <Input
@@ -487,11 +498,12 @@ export default function ProjectsPage() {
                 </div>
               </div>
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
+            </div>
+            <DialogFooter className="flex-col sm:flex-row gap-2">
+              <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)} className="w-full sm:w-auto">
                 Annuler
               </Button>
-              <Button onClick={handleCreateProject} disabled={!formData.name}>
+              <Button onClick={handleCreateProject} disabled={!formData.name} className="w-full sm:w-auto">
                 Créer
               </Button>
             </DialogFooter>
@@ -500,8 +512,8 @@ export default function ProjectsPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex items-center space-x-4">
-        <div className="relative flex-1 max-w-sm">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+        <div className="relative flex-1 max-w-full sm:max-w-sm">
           <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Rechercher un projet..."
@@ -510,37 +522,39 @@ export default function ProjectsPage() {
             className="pl-8"
           />
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[180px]">
-            <Filter className="mr-2 h-4 w-4" />
-            <SelectValue placeholder="Statut" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Tous les statuts</SelectItem>
-            <SelectItem value="IN_PROGRESS">En cours</SelectItem>
-            <SelectItem value="COMPLETED">Terminé</SelectItem>
-            <SelectItem value="ON_HOLD">En pause</SelectItem>
-            <SelectItem value="CANCELLED">Annulé</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={clientFilter} onValueChange={setClientFilter}>
-          <SelectTrigger className="w-[180px]">
-            <User className="mr-2 h-4 w-4" />
-            <SelectValue placeholder="Client" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Tous les clients</SelectItem>
-            {clients.map((client) => (
-              <SelectItem key={client.id} value={client.id}>
-                {client.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-full sm:w-[180px]">
+              <Filter className="mr-2 h-4 w-4" />
+              <SelectValue placeholder="Statut" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tous les statuts</SelectItem>
+              <SelectItem value="IN_PROGRESS">En cours</SelectItem>
+              <SelectItem value="COMPLETED">Terminé</SelectItem>
+              <SelectItem value="ON_HOLD">En pause</SelectItem>
+              <SelectItem value="CANCELLED">Annulé</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={clientFilter} onValueChange={setClientFilter}>
+            <SelectTrigger className="w-full sm:w-[180px]">
+              <User className="mr-2 h-4 w-4" />
+              <SelectValue placeholder="Client" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tous les clients</SelectItem>
+              {clients.map((client) => (
+                <SelectItem key={client.id} value={client.id}>
+                  {client.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Projects Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-3 sm:gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
         {filteredProjects.map((project, index) => (
           <motion.div
             key={project.id}
@@ -548,22 +562,22 @@ export default function ProjectsPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: index * 0.1 }}
           >
-            <Card className="hover:shadow-md transition-shadow">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <div className="flex items-center space-x-2">
-                  <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-blue-500 rounded-full flex items-center justify-center text-white text-sm font-bold">
+            <Card className="hover:shadow-md transition-shadow h-full">
+              <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3">
+                <div className="flex items-center space-x-2 min-w-0 flex-1">
+                  <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-blue-500 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0">
                     <FolderOpen className="h-4 w-4" />
                   </div>
-                  <div>
-                    <CardTitle className="text-base">{project.name}</CardTitle>
+                  <div className="min-w-0 flex-1">
+                    <CardTitle className="text-sm sm:text-base truncate">{project.name}</CardTitle>
                     {project.client && (
-                      <CardDescription className="text-sm">{project.client.name}</CardDescription>
+                      <CardDescription className="text-xs sm:text-sm truncate">{project.client.name}</CardDescription>
                     )}
                   </div>
                 </div>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" className="h-8 w-8 p-0">
+                    <Button variant="ghost" className="h-8 w-8 p-0 shrink-0">
                       <MoreHorizontal className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
@@ -588,42 +602,41 @@ export default function ProjectsPage() {
                   </DropdownMenuContent>
                 </DropdownMenu>
               </CardHeader>
-              <CardContent>
+              <CardContent className="pt-0">
                 <div className="space-y-3">
                   {project.description && (
-                    <p className="text-sm text-muted-foreground line-clamp-2">
+                    <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2">
                       {project.description}
                     </p>
                   )}
                   
-                  <div className="flex items-center justify-between">
-                    <Badge variant={getStatusBadge(project.status).variant}>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:justify-between">
+                    <Badge variant={getStatusBadge(project.status).variant} className="w-fit">
                       {getStatusBadge(project.status).label}
                     </Badge>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getTypeBadge(project.type).color}`}>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium w-fit ${getTypeBadge(project.type).color}`}>
                       {getTypeBadge(project.type).label}
                     </span>
                   </div>
 
-                  <div className="flex items-center justify-between text-sm">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:justify-between text-xs sm:text-sm">
                     <div className="flex items-center text-muted-foreground">
-                      <DollarSign className="mr-1 h-3 w-3" />
-                      {formatCurrency(project.amount)}
+                      <DollarSign className="mr-1 h-3 w-3 shrink-0" />
+                      <span className="truncate">{formatCurrency(project.amount)}</span>
                     </div>
                     <div className="flex items-center text-muted-foreground">
-                      <Calendar className="mr-1 h-3 w-3" />
-                      {project._count.services} service{project._count.services !== 1 ? 's' : ''}
+                      <Calendar className="mr-1 h-3 w-3 shrink-0" />
+                      <span>{project._count.services} service{project._count.services !== 1 ? 's' : ''}</span>
                     </div>
                   </div>
 
                   {(project.startDate || project.endDate) && (
-                    <div className="text-xs text-muted-foreground">
+                    <div className="text-xs text-muted-foreground border-t pt-2">
                       {project.startDate && (
-                        <span>Début: {new Date(project.startDate).toLocaleDateString('fr-FR')}</span>
+                        <div>Début: {new Date(project.startDate).toLocaleDateString('fr-FR')}</div>
                       )}
-                      {project.startDate && project.endDate && <span> • </span>}
                       {project.endDate && (
-                        <span>Fin: {new Date(project.endDate).toLocaleDateString('fr-FR')}</span>
+                        <div>Fin: {new Date(project.endDate).toLocaleDateString('fr-FR')}</div>
                       )}
                     </div>
                   )}
@@ -648,14 +661,15 @@ export default function ProjectsPage() {
 
       {/* Edit Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-hidden">
           <DialogHeader>
             <DialogTitle>Modifier le projet</DialogTitle>
             <DialogDescription>
               Modifiez les informations du projet.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
+          <div className="overflow-y-auto max-h-[65vh] px-1">
+            <div className="grid gap-4 py-4">
             <div className="grid gap-2">
               <Label htmlFor="edit-name">Nom du projet *</Label>
               <Input
@@ -797,16 +811,19 @@ export default function ProjectsPage() {
               </div>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+          </div>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)} className="w-full sm:w-auto">
               Annuler
             </Button>
-            <Button onClick={handleUpdateProject} disabled={!formData.name}>
+            <Button onClick={handleUpdateProject} disabled={!formData.name} className="w-full sm:w-auto">
               Sauvegarder
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog />
     </div>
   )
 } 

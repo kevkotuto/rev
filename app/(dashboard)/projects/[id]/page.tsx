@@ -874,26 +874,35 @@ export default function ProjectDetailPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" onClick={() => router.push("/projects")}>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+          <Button variant="ghost" onClick={() => router.push("/projects")} className="w-fit">
             <ArrowLeft className="w-4 h-4 mr-2" />
-            Retour
+            <span className="hidden sm:inline">Retour</span>
+            <span className="sm:hidden">Retour</span>
           </Button>
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">{project.name}</h1>
-            <p className="text-muted-foreground">
-              {project.client?.name && `Client: ${project.client.name} • `}
-              Créé le {new Date(project.createdAt).toLocaleDateString('fr-FR')}
-            </p>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight truncate" title={project.name}>
+              {project.name}
+            </h1>
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2 text-sm text-muted-foreground">
+              {project.client?.name && (
+                <span className="truncate">Client: {project.client.name}</span>
+              )}
+              <span className="hidden sm:inline">•</span>
+              <span className="text-xs sm:text-sm">
+                Créé le {new Date(project.createdAt).toLocaleDateString('fr-FR')}
+              </span>
+            </div>
           </div>
         </div>
-                <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
             <DialogTrigger asChild>
-              <Button variant="outline">
+              <Button variant="outline" className="w-full sm:w-auto">
                 <Edit className="w-4 h-4 mr-2" />
-                Modifier
+                <span className="hidden sm:inline">Modifier</span>
+                <span className="sm:hidden">Modifier</span>
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-[600px]">
@@ -997,47 +1006,49 @@ export default function ProjectDetailPage() {
       </div>
 
       {/* Métriques rapides */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4">
         <Card>
-          <CardContent className="p-6">
+          <CardContent className="p-3 sm:p-4 lg:p-6">
             <div className="flex items-center gap-2">
-              <DollarSign className="h-5 w-5 text-green-600" />
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Budget</p>
-                <p className="text-2xl font-bold">{formatCurrency(project.amount)}</p>
+              <DollarSign className="h-4 w-4 sm:h-5 sm:w-5 text-green-600 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs sm:text-sm font-medium text-muted-foreground">Budget</p>
+                <p className="text-lg sm:text-xl lg:text-2xl font-bold truncate" title={formatCurrency(project.amount)}>
+                  {formatCurrency(project.amount)}
+                </p>
               </div>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-6">
+          <CardContent className="p-3 sm:p-4 lg:p-6">
             <div className="flex items-center gap-2">
-              <CheckCircle className="h-5 w-5 text-blue-600" />
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Tâches</p>
-                <p className="text-2xl font-bold">{tasks.length}</p>
+              <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs sm:text-sm font-medium text-muted-foreground">Tâches</p>
+                <p className="text-lg sm:text-xl lg:text-2xl font-bold">{tasks.length}</p>
               </div>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-6">
+          <CardContent className="p-3 sm:p-4 lg:p-6">
             <div className="flex items-center gap-2">
-              <FileText className="h-5 w-5 text-purple-600" />
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Fichiers</p>
-                <p className="text-2xl font-bold">{project.files.length}</p>
+              <FileText className="h-4 w-4 sm:h-5 sm:w-5 text-purple-600 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs sm:text-sm font-medium text-muted-foreground">Fichiers</p>
+                <p className="text-lg sm:text-xl lg:text-2xl font-bold">{project.files.length}</p>
               </div>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-6">
+          <CardContent className="p-3 sm:p-4 lg:p-6">
             <div className="flex items-center gap-2">
-              <Users className="h-5 w-5 text-orange-600" />
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Prestataires</p>
-                <p className="text-2xl font-bold">{project.projectProviders.length}</p>
+              <Users className="h-4 w-4 sm:h-5 sm:w-5 text-orange-600 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs sm:text-sm font-medium text-muted-foreground">Prestataires</p>
+                <p className="text-lg sm:text-xl lg:text-2xl font-bold">{project.projectProviders.length}</p>
               </div>
             </div>
           </CardContent>
@@ -1046,7 +1057,8 @@ export default function ProjectDetailPage() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-8">
+        {/* Desktop Tabs */}
+        <TabsList className="hidden lg:grid w-full grid-cols-8">
           <TabsTrigger value="overview">Vue d'ensemble</TabsTrigger>
           <TabsTrigger value="tasks">Tâches</TabsTrigger>
           <TabsTrigger value="files">Fichiers</TabsTrigger>
@@ -1057,13 +1069,57 @@ export default function ProjectDetailPage() {
           <TabsTrigger value="invoices">Facturation</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview" className="space-y-6">
-          <div className="grid gap-6 md:grid-cols-2">
+        {/* Tablet Tabs */}
+        <div className="hidden md:grid lg:hidden grid-cols-2 gap-2">
+          <TabsList className="grid grid-cols-4">
+            <TabsTrigger value="overview" className="text-xs">Vue</TabsTrigger>
+            <TabsTrigger value="tasks" className="text-xs">Tâches</TabsTrigger>
+            <TabsTrigger value="files" className="text-xs">Fichiers</TabsTrigger>
+            <TabsTrigger value="providers" className="text-xs">Équipe</TabsTrigger>
+          </TabsList>
+          <TabsList className="grid grid-cols-4">
+            <TabsTrigger value="expenses" className="text-xs">Dépenses</TabsTrigger>
+            <TabsTrigger value="services" className="text-xs">Services</TabsTrigger>
+            <TabsTrigger value="budget" className="text-xs">Budget</TabsTrigger>
+            <TabsTrigger value="invoices" className="text-xs">Factures</TabsTrigger>
+          </TabsList>
+        </div>
+
+        {/* Mobile Tabs - Scrollable */}
+        <div className="md:hidden">
+          <div className="overflow-x-auto scrollbar-hide">
+            <TabsList className="w-max min-w-full justify-start">
+              <div className="flex gap-1 px-1">
+                <TabsTrigger value="overview" className="text-xs px-3 py-2 whitespace-nowrap">Vue</TabsTrigger>
+                <TabsTrigger value="tasks" className="text-xs px-3 py-2 whitespace-nowrap">Tâches</TabsTrigger>
+                <TabsTrigger value="files" className="text-xs px-3 py-2 whitespace-nowrap">Fichiers</TabsTrigger>
+                <TabsTrigger value="providers" className="text-xs px-3 py-2 whitespace-nowrap">Équipe</TabsTrigger>
+                <TabsTrigger value="expenses" className="text-xs px-3 py-2 whitespace-nowrap">Dépenses</TabsTrigger>
+                <TabsTrigger value="services" className="text-xs px-3 py-2 whitespace-nowrap">Services</TabsTrigger>
+                <TabsTrigger value="budget" className="text-xs px-3 py-2 whitespace-nowrap">Budget</TabsTrigger>
+                <TabsTrigger value="invoices" className="text-xs px-3 py-2 whitespace-nowrap">Factures</TabsTrigger>
+              </div>
+            </TabsList>
+          </div>
+        </div>
+
+        <style jsx global>{`
+          .scrollbar-hide {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+          }
+          .scrollbar-hide::-webkit-scrollbar {
+            display: none;
+          }
+        `}</style>
+
+        <TabsContent value="overview" className="space-y-4 sm:space-y-6">
+          <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
             <Card>
-              <CardHeader>
-                <CardTitle>Informations du projet</CardTitle>
+              <CardHeader className="pb-3 sm:pb-6">
+                <CardTitle className="text-base sm:text-lg">Informations du projet</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-3 sm:space-y-4 pt-0">
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Description</p>
                   <p className="text-sm">{project.description || "Aucune description"}</p>
@@ -1098,10 +1154,10 @@ export default function ProjectDetailPage() {
             </Card>
 
             <Card>
-              <CardHeader>
-                <CardTitle>Résumé financier</CardTitle>
+              <CardHeader className="pb-3 sm:pb-6">
+                <CardTitle className="text-base sm:text-lg">Résumé financier</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="pt-0">
                 <div className="space-y-4">
                   <div className="flex justify-between">
                     <span>Budget projet</span>
@@ -1127,12 +1183,13 @@ export default function ProjectDetailPage() {
           </div>
         </TabsContent>
 
-        <TabsContent value="tasks" className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">Tâches du projet</h3>
-            <Button onClick={() => openTaskDialog()}>
+        <TabsContent value="tasks" className="space-y-4 sm:space-y-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h3 className="text-base sm:text-lg font-semibold">Tâches du projet</h3>
+            <Button onClick={() => openTaskDialog()} className="w-full sm:w-auto">
               <Plus className="w-4 h-4 mr-2" />
-              Nouvelle tâche
+              <span className="hidden sm:inline">Nouvelle tâche</span>
+              <span className="sm:hidden">Nouvelle tâche</span>
             </Button>
           </div>
 
@@ -1150,14 +1207,15 @@ export default function ProjectDetailPage() {
           </div>
         </TabsContent>
 
-        <TabsContent value="files" className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">Fichiers du projet</h3>
+        <TabsContent value="files" className="space-y-4 sm:space-y-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h3 className="text-base sm:text-lg font-semibold">Fichiers du projet</h3>
             <Dialog open={isFileDialogOpen} onOpenChange={setIsFileDialogOpen}>
               <DialogTrigger asChild>
-                <Button>
+                <Button className="w-full sm:w-auto">
                   <Upload className="w-4 h-4 mr-2" />
-                  Uploader un fichier
+                  <span className="hidden sm:inline">Uploader un fichier</span>
+                  <span className="sm:hidden">Uploader</span>
                 </Button>
               </DialogTrigger>
               <DialogContent>
@@ -1198,10 +1256,10 @@ export default function ProjectDetailPage() {
             </Dialog>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
             {project.files.map((file) => (
               <Card key={file.id}>
-                <CardContent className="p-4">
+                <CardContent className="p-3 sm:p-4">
                   <div className="flex items-center justify-between mb-2">
                     <FileText className="h-8 w-8 text-blue-500" />
                     <DropdownMenu>

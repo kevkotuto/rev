@@ -111,11 +111,15 @@ export async function POST(request: NextRequest) {
       validatedData.type === 'PROFORMA' ? 'PRO' : 'INV'
     )
 
-    // Créer la facture
+    // Créer la facture avec transformation des dates
+    const { generatePaymentLink, ...invoiceDataWithoutPaymentLink } = validatedData
     const invoiceData = {
-      ...validatedData,
+      ...invoiceDataWithoutPaymentLink,
       invoiceNumber,
       userId: session.user.id,
+      // Transformer les dates en format ISO-8601 DateTime
+      dueDate: validatedData.dueDate ? new Date(validatedData.dueDate).toISOString() : null,
+      paidDate: validatedData.paidDate ? new Date(validatedData.paidDate).toISOString() : null,
       // Copier les informations client pour la facture
       clientName: client?.name || body.clientName,
       clientEmail: client?.email || body.clientEmail,

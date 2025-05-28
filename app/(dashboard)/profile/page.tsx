@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Separator } from "@/components/ui/separator"
-import { User, Mail, Building, MapPin, Phone, Key, CreditCard, Send } from "lucide-react"
+import { User, Mail, Building, MapPin, Phone, Key, CreditCard, Send, Zap } from "lucide-react"
 import { toast } from "sonner"
 import {
   Dialog,
@@ -41,8 +41,11 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [testingEmail, setTestingEmail] = useState(false)
+  const [testingWebhook, setTestingWebhook] = useState(false)
   const [isTestDialogOpen, setIsTestDialogOpen] = useState(false)
+  const [isWebhookTestDialogOpen, setIsWebhookTestDialogOpen] = useState(false)
   const [testEmail, setTestEmail] = useState("")
+  const [webhookTestResult, setWebhookTestResult] = useState<any>(null)
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -152,6 +155,53 @@ export default function ProfilePage() {
       toast.error('Erreur lors de l\'envoi de l\'email de test')
     } finally {
       setTestingEmail(false)
+    }
+  }
+
+  const handleTestWebhook = async () => {
+    if (!formData.waveApiKey) {
+      toast.error('Veuillez d\'abord configurer votre clé API Wave')
+      return
+    }
+
+    setTestingWebhook(true)
+    setWebhookTestResult(null)
+    
+    try {
+      const response = await fetch('/api/wave/test-webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          waveApiKey: formData.waveApiKey,
+          merchantName: formData.companyName || profile?.name || 'Test Merchant'
+        })
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        setWebhookTestResult(data)
+        
+        // Mettre à jour automatiquement le secret webhook si reçu
+        if (data.webhookSecret) {
+          setFormData(prev => ({
+            ...prev,
+            waveWebhookSecret: data.webhookSecret
+          }))
+          toast.success('Secret webhook récupéré et configuré automatiquement !')
+        } else {
+          toast.success('Test webhook envoyé avec succès !')
+        }
+      } else {
+        toast.error(data.message || 'Erreur lors du test webhook')
+        setWebhookTestResult({ error: data.message || 'Erreur inconnue' })
+      }
+    } catch (error) {
+      console.error('Erreur:', error)
+      toast.error('Erreur lors du test webhook')
+      setWebhookTestResult({ error: 'Erreur de connexion' })
+    } finally {
+      setTestingWebhook(false)
     }
   }
 
@@ -434,6 +484,76 @@ export default function ProfilePage() {
                   Copiez cette URL et configurez-la dans votre tableau de bord Wave CI comme URL de webhook
                 </p>
               </div>
+
+              {/* Bouton de test webhook */}
+              <div className="pt-4 border-t">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="font-medium">Test de webhook Wave</h4>
+                    <p className="text-sm text-muted-foreground">
+                      Testez votre configuration webhook et récupérez automatiquement le secret
+                    </p>
+                  </div>
+                  <Dialog open={isWebhookTestDialogOpen} onOpenChange={setIsWebhookTestDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" disabled={!formData.waveApiKey}>
+                        <Zap className="w-4 h-4 mr-2" />
+                        Test Webhook
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-2xl">
+                      <DialogHeader>
+                        <DialogTitle>Test de webhook Wave CI</DialogTitle>
+                        <DialogDescription>
+                          Ce test va envoyer un événement de test à votre webhook et récupérer automatiquement le secret de signature
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4 py-4">
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                          <h4 className="font-medium text-blue-800 mb-2">Comment ça fonctionne :</h4>
+                          <ol className="text-sm text-blue-700 space-y-1 list-decimal list-inside">
+                            <li>Un événement de test est envoyé via l'API Wave</li>
+                            <li>Wave envoie le webhook à votre URL configurée</li>
+                            <li>Le système capture automatiquement le secret de signature</li>
+                            <li>Le secret est enregistré dans votre profil</li>
+                            <li>Les futurs webhooks seront correctement validés</li>
+                          </ol>
+                        </div>
+
+                        {webhookTestResult && (
+                          <div className={`p-4 rounded-lg border ${webhookTestResult.error ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
+                            <h4 className={`font-medium mb-2 ${webhookTestResult.error ? 'text-red-800' : 'text-green-800'}`}>
+                              {webhookTestResult.error ? 'Erreur' : 'Succès'}
+                            </h4>
+                            {webhookTestResult.error ? (
+                              <p className="text-sm text-red-700">{webhookTestResult.error}</p>
+                            ) : (
+                              <div className="space-y-2 text-sm text-green-700">
+                                <p>✅ Webhook test envoyé avec succès</p>
+                                {webhookTestResult.webhookSecret && (
+                                  <p>✅ Secret webhook récupéré et configuré</p>
+                                )}
+                                {webhookTestResult.testEventId && (
+                                  <p>📝 ID de l'événement test: {webhookTestResult.testEventId}</p>
+                                )}
+                                <p>🔄 Votre webhook est maintenant configuré pour recevoir les paiements</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsWebhookTestDialogOpen(false)}>
+                          Fermer
+                        </Button>
+                        <Button onClick={handleTestWebhook} disabled={testingWebhook || !formData.waveApiKey}>
+                          {testingWebhook ? 'Test en cours...' : 'Lancer le test'}
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              </div>
             </div>
 
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
@@ -443,20 +563,19 @@ export default function ProfilePage() {
                 <li>Allez dans les paramètres de votre compte</li>
                 <li>Ajoutez l'URL webhook ci-dessus</li>
                 <li>Récupérez votre clé API et saisissez-la dans le premier champ</li>
-                <li><strong>Important :</strong> Une fois le webhook configuré, Wave CI vous fournira un "Secret" - saisissez-le dans le champ "Secret Webhook"</li>
+                <li><strong>Utilisez le bouton "Test Webhook"</strong> pour configurer automatiquement le secret</li>
                 <li>Sauvegardez vos paramètres ici</li>
                 <li>Testez un paiement pour vérifier la configuration</li>
               </ol>
             </div>
 
             <div className="bg-green-50 border border-green-200 rounded-lg p-4 mt-4">
-              <h4 className="font-medium text-green-800 mb-2">✅ Sécurité renforcée</h4>
+              <h4 className="font-medium text-green-800 mb-2">✅ Configuration automatique</h4>
               <p className="text-sm text-green-700">
-                Le secret webhook garantit que seuls les vrais paiements Wave CI sont traités. 
-                Sans ce secret, les webhooks fonctionneront mais sans vérification de signature.
+                Le bouton "Test Webhook" configure automatiquement le secret de signature. 
+                Plus besoin de le saisir manuellement !
               </p>
             </div>
-
 
           </CardContent>
         </Card>

@@ -11,6 +11,25 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
+import { FormField, FormError } from "@/components/ui/form-error"
+import { useConfirmDialog } from "@/components/ui/confirm-dialog"
+import { useFormWithValidation } from "@/hooks/use-form-validation"
+import { invoiceSchema, type InvoiceInput } from "@/lib/validations"
+
+// Type pour les formulaires de facture
+interface InvoiceFormData {
+  type: "INVOICE" | "PROFORMA"
+  amount: number
+  dueDate?: string
+  paidDate?: string
+  notes?: string
+  clientName?: string
+  clientEmail?: string
+  clientAddress?: string
+  clientPhone?: string
+  projectId?: string
+  generatePaymentLink: boolean
+}
 import { 
   Plus, 
   Search, 
@@ -78,7 +97,7 @@ interface InvoiceFormData {
   clientAddress?: string
   clientPhone?: string
   projectId?: string
-  generatePaymentLink?: boolean
+  generatePaymentLink: boolean
 }
 
 interface Project {
@@ -137,11 +156,26 @@ export default function InvoicesPage() {
   const [emailInvoiceId, setEmailInvoiceId] = useState<string>("")
   const [emailInvoiceType, setEmailInvoiceType] = useState<"INVOICE" | "PROFORMA">("INVOICE")
   const [showPaymentLinkDialog, setShowPaymentLinkDialog] = useState(false)
+  
+  // Hook de confirmation
+  const { confirm, ConfirmDialog } = useConfirmDialog()
+
+  // États pour les formulaires
   const [formData, setFormData] = useState<InvoiceFormData>({
     type: "INVOICE",
     amount: 0,
     generatePaymentLink: false
   })
+
+  const [editFormData, setEditFormData] = useState<InvoiceFormData>({
+    type: "INVOICE",
+    amount: 0,
+    generatePaymentLink: false
+  })
+
+  // États pour la validation
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({})
+  const [editFormErrors, setEditFormErrors] = useState<Record<string, string>>({})
 
   const [paymentLinkForm, setPaymentLinkForm] = useState<PaymentLinkFormData>({
     amount: "",
@@ -247,42 +281,77 @@ export default function InvoicesPage() {
     })
   }
 
-  const handleCreateInvoice = async () => {
-    try {
-      const response = await fetch('/api/invoices', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      })
+  const validateForm = (data: InvoiceFormData): string[] => {
+    const errors: string[] = []
+    
+    if (!data.amount || data.amount <= 0) {
+      errors.push("Le montant doit être supérieur à 0")
+    }
+    
+    if (!data.projectId && !data.clientName) {
+      errors.push("Le nom du client est requis si aucun projet n'est sélectionné")
+    }
+    
+    if (data.clientEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.clientEmail)) {
+      errors.push("Format d'email invalide")
+    }
+    
+    return errors
+  }
 
-      if (response.ok) {
-        const newInvoice = await response.json()
-        setInvoices([newInvoice, ...invoices])
-        setShowCreateDialog(false)
-        setFormData({
-          type: "INVOICE",
-          amount: 0,
-          generatePaymentLink: false
+  const handleCreateInvoice = async () => {
+    const errors = validateForm(formData)
+    
+    if (errors.length > 0) {
+      toast.error(errors[0])
+      return
+    }
+    try {
+              const response = await fetch('/api/invoices', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData)
         })
-        toast.success(`${formData.type === 'PROFORMA' ? 'Proforma' : 'Facture'} créée avec succès`)
+
+        if (response.ok) {
+          const newInvoice = await response.json()
+          setInvoices([newInvoice, ...invoices])
+          setShowCreateDialog(false)
+          setFormData({
+            type: "INVOICE",
+            amount: 0,
+            generatePaymentLink: false
+          })
+          toast.success(`${formData.type === 'PROFORMA' ? 'Proforma' : 'Facture'} créée avec succès`)
       } else {
         const error = await response.json()
         toast.error(error.message || 'Erreur lors de la création')
+        throw new Error(error.message)
       }
     } catch (error) {
       console.error('Erreur:', error)
-      toast.error('Erreur lors de la création')
+      if (error instanceof Error) {
+        throw error
+      }
+      throw new Error('Erreur lors de la création')
     }
   }
 
   const handleEditInvoice = async () => {
     if (!editingInvoice) return
 
+    const errors = validateForm(editFormData)
+    
+    if (errors.length > 0) {
+      toast.error(errors[0])
+      return
+    }
+
     try {
       const response = await fetch(`/api/invoices/${editingInvoice.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(editFormData)
       })
 
       if (response.ok) {
@@ -302,24 +371,30 @@ export default function InvoicesPage() {
   }
 
   const handleDeleteInvoice = async (invoiceId: string) => {
-    if (!confirm('Êtes-vous sûr de vouloir supprimer cette facture ?')) return
+    confirm({
+      title: "Supprimer la facture",
+      description: "Êtes-vous sûr de vouloir supprimer cette facture ? Cette action ne peut pas être annulée.",
+      variant: "destructive",
+      confirmText: "Supprimer",
+      onConfirm: async () => {
+        try {
+          const response = await fetch(`/api/invoices/${invoiceId}`, {
+            method: 'DELETE'
+          })
 
-    try {
-      const response = await fetch(`/api/invoices/${invoiceId}`, {
-        method: 'DELETE'
-      })
-
-      if (response.ok) {
-        setInvoices(invoices.filter(inv => inv.id !== invoiceId))
-        toast.success('Facture supprimée avec succès')
-      } else {
-        const error = await response.json()
-        toast.error(error.message || 'Erreur lors de la suppression')
+          if (response.ok) {
+            setInvoices(invoices.filter(inv => inv.id !== invoiceId))
+            toast.success('Facture supprimée avec succès')
+          } else {
+            const error = await response.json()
+            toast.error(error.message || 'Erreur lors de la suppression')
+          }
+        } catch (error) {
+          console.error('Erreur:', error)
+          toast.error('Erreur lors de la suppression')
+        }
       }
-    } catch (error) {
-      console.error('Erreur:', error)
-      toast.error('Erreur lors de la suppression')
-    }
+    })
   }
 
   const handleMarkAsPaid = async (invoiceId: string) => {
@@ -373,7 +448,12 @@ export default function InvoicesPage() {
   }
 
   const handleRegeneratePaymentLink = async (invoiceId: string) => {
-    if (!confirm('Êtes-vous sûr de vouloir régénérer le lien de paiement ? L\'ancien lien ne fonctionnera plus.')) return
+    confirm({
+      title: "Régénérer le lien de paiement",
+      description: "Êtes-vous sûr de vouloir régénérer le lien de paiement ? L'ancien lien ne fonctionnera plus.",
+      variant: "default",
+      confirmText: "Régénérer",
+      onConfirm: async () => {
 
     try {
       const response = await fetch(`/api/invoices/${invoiceId}/payment-link`, {
@@ -399,6 +479,8 @@ export default function InvoicesPage() {
       console.error('Erreur:', error)
       toast.error('Erreur lors de la régénération du lien')
     }
+      }
+    })
   }
 
   const copyPaymentLink = async (paymentLink: string) => {
@@ -956,7 +1038,11 @@ export default function InvoicesPage() {
                   value={formData.amount}
                   onChange={(e) => setFormData({...formData, amount: parseFloat(e.target.value) || 0})}
                   placeholder="0"
+                  className={formData.amount <= 0 ? "border-red-500" : ""}
                 />
+                {formData.amount <= 0 && (
+                  <FormError message="Le montant doit être supérieur à 0" />
+                )}
               </div>
 
               <div className="grid gap-2">
@@ -978,7 +1064,11 @@ export default function InvoicesPage() {
                   value={formData.clientName || ""}
                   onChange={(e) => setFormData({...formData, clientName: e.target.value})}
                   placeholder="Nom du client"
+                  className={!formData.projectId && !formData.clientName ? "border-red-500" : ""}
                 />
+                {!formData.projectId && !formData.clientName && (
+                  <FormError message="Le nom du client est requis si aucun projet n'est sélectionné" />
+                )}
               </div>
 
               <div className="grid gap-2">
@@ -1044,7 +1134,10 @@ export default function InvoicesPage() {
             <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
               Annuler
             </Button>
-            <Button onClick={handleCreateInvoice}>
+            <Button 
+              onClick={handleCreateInvoice}
+              disabled={!formData.amount || formData.amount <= 0}
+            >
               Créer la {formData.type === 'PROFORMA' ? 'proforma' : 'facture'}
             </Button>
           </DialogFooter>
@@ -1426,6 +1519,8 @@ export default function InvoicesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* Dialog de confirmation */}
+      <ConfirmDialog />
     </div>
   )
 }

@@ -6,7 +6,7 @@ import { expenseSchema } from "@/lib/validations"
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -18,9 +18,11 @@ export async function GET(
       )
     }
 
+    const { id } = await params
+
     const expenses = await prisma.expense.findMany({
       where: {
-        projectId: params.id,
+        projectId: id,
         userId: session.user.id
       },
       include: {
@@ -48,7 +50,7 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -60,10 +62,12 @@ export async function POST(
       )
     }
 
+    const { id } = await params
+
     // Vérifier que le projet existe et appartient à l'utilisateur
     const project = await prisma.project.findFirst({
       where: {
-        id: params.id,
+        id: id,
         userId: session.user.id
       }
     })
@@ -78,7 +82,7 @@ export async function POST(
     const body = await request.json()
     const validatedData = expenseSchema.parse({
       ...body,
-      projectId: params.id,
+      projectId: id,
       type: "PROJECT"
     })
 
@@ -90,7 +94,7 @@ export async function POST(
         date: validatedData.date,
         notes: validatedData.notes,
         type: validatedData.type,
-        projectId: params.id,
+        projectId: id,
         userId: session.user.id
       },
       include: {
