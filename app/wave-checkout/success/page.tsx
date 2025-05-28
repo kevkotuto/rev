@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, Suspense } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -21,7 +21,7 @@ interface CheckoutSession {
   client_reference?: string
 }
 
-export default function CheckoutSuccessPage() {
+function CheckoutSuccessContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [checkoutSession, setCheckoutSession] = useState<CheckoutSession | null>(null)
@@ -199,22 +199,35 @@ export default function CheckoutSuccessPage() {
                 className="flex-1"
               >
                 <ArrowLeft className="w-4 h-4 mr-2" />
-                Retour aux transactions
+                Transactions
               </Button>
               
-              {checkoutSession?.transaction_id && (
-                <Button
-                  variant="outline"
-                  onClick={() => window.open(`https://wave.com/transaction/${checkoutSession.transaction_id}`, '_blank')}
-                  size="icon"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                </Button>
-              )}
+              <Button
+                onClick={() => router.push('/dashboard')}
+                className="flex-1"
+              >
+                <ExternalLink className="w-4 h-4 mr-2" />
+                Dashboard
+              </Button>
             </div>
           </CardContent>
         </Card>
       </motion.div>
     </div>
+  )
+}
+
+export default function CheckoutSuccessPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
+          <p className="mt-4 text-muted-foreground">Chargement...</p>
+        </div>
+      </div>
+    }>
+      <CheckoutSuccessContent />
+    </Suspense>
   )
 } 

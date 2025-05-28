@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, Suspense } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -27,7 +27,7 @@ interface CheckoutSession {
   wave_launch_url: string
 }
 
-export default function CheckoutErrorPage() {
+function CheckoutErrorContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [checkoutSession, setCheckoutSession] = useState<CheckoutSession | null>(null)
@@ -199,65 +199,100 @@ export default function CheckoutErrorPage() {
                       <div className="text-sm font-medium text-red-800 mb-1">
                         Erreur: {checkoutSession.last_payment_error.code}
                       </div>
-                      <div className="text-sm text-red-600">
+                      <div className="text-sm text-red-700">
                         {getErrorMessage(checkoutSession.last_payment_error.code)}
                       </div>
                     </div>
                   )}
 
-                  {isSessionExpired() && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted-foreground">Créé le</span>
+                    <span className="text-sm">{formatDateTime(checkoutSession.when_created)}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted-foreground">Expire le</span>
+                    <span className={`text-sm ${isSessionExpired() ? 'text-red-600 font-medium' : ''}`}>
+                      {formatDateTime(checkoutSession.when_expires)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {canRetry() ? (
+                    <Button 
+                      onClick={() => window.open(checkoutSession.wave_launch_url, '_blank')}
+                      className="w-full"
+                    >
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Réessayer le paiement
+                    </Button>
+                  ) : (
                     <div className="bg-orange-50 border border-orange-200 rounded p-3">
                       <div className="text-sm text-orange-800">
-                        Cette session a expiré le {formatDateTime(checkoutSession.when_expires)}
+                        {isSessionExpired() 
+                          ? "Cette session a expiré. Vous devez créer une nouvelle session de paiement."
+                          : "Cette session n'est plus disponible pour un nouveau paiement."
+                        }
                       </div>
                     </div>
                   )}
 
-                  {checkoutSession.business_name && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-muted-foreground">Entreprise</span>
-                      <span className="text-sm font-medium">{checkoutSession.business_name}</span>
-                    </div>
-                  )}
-                </div>
-
-                {!isSessionExpired() && checkoutSession.last_payment_error && (
-                  <div className="text-center text-sm text-muted-foreground">
-                    Vous pouvez réessayer le paiement si le problème est résolu
+                  <div className="grid grid-cols-2 gap-3">
+                    <Button 
+                      variant="outline" 
+                      onClick={() => router.push('/wave-transactions')}
+                      className="flex items-center gap-2"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      <span className="hidden sm:inline">Transactions</span>
+                      <span className="sm:hidden">Trans.</span>
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => router.push('/dashboard')}
+                      className="flex items-center gap-2"
+                    >
+                      <ArrowLeft className="w-4 h-4" />
+                      <span className="hidden sm:inline">Dashboard</span>
+                      <span className="sm:hidden">Retour</span>
+                    </Button>
                   </div>
-                )}
+                </div>
               </>
             ) : (
               <div className="text-center py-8">
-                <p className="text-muted-foreground">
-                  Impossible de récupérer les détails de la session
+                <XCircle className="mx-auto h-12 w-12 text-red-500 mb-4" />
+                <h3 className="text-lg font-medium mb-2">Session introuvable</h3>
+                <p className="text-muted-foreground mb-4">
+                  Impossible de récupérer les informations de cette session de paiement.
                 </p>
+                <div className="space-y-2">
+                  <Button onClick={() => router.push('/dashboard')} className="w-full">
+                    <ArrowLeft className="w-4 h-4 mr-2" />
+                    Retour au dashboard
+                  </Button>
+                </div>
               </div>
             )}
-
-            <div className="flex gap-2 pt-4">
-              <Button
-                variant="outline"
-                onClick={() => router.push('/wave-transactions')}
-                className="flex-1"
-              >
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Retour aux transactions
-              </Button>
-              
-              {canRetry() && checkoutSession?.wave_launch_url && (
-                <Button
-                  onClick={() => window.open(checkoutSession.wave_launch_url, '_blank')}
-                  className="flex-1"
-                >
-                  <RefreshCw className="w-4 h-4 mr-2" />
-                  Réessayer
-                </Button>
-              )}
-            </div>
           </CardContent>
         </Card>
       </motion.div>
     </div>
+  )
+}
+
+export default function CheckoutErrorPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600 mx-auto"></div>
+          <p className="mt-4 text-muted-foreground">Chargement...</p>
+        </div>
+      </div>
+    }>
+      <CheckoutErrorContent />
+    </Suspense>
   )
 } 

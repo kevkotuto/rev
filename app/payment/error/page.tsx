@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, Suspense } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -28,19 +28,17 @@ interface PaymentError {
 }
 
 const ERROR_MESSAGES = {
-  'insufficient_funds': 'Fonds insuffisants sur votre compte Wave',
-  'invalid_phone': 'Numéro de téléphone invalide',
-  'transaction_failed': 'La transaction a échoué',
-  'network_error': 'Erreur de réseau, veuillez réessayer',
-  'timeout': 'La transaction a expiré',
-  'cancelled': 'Paiement annulé par l\'utilisateur',
-  'invalid_amount': 'Montant invalide',
-  'account_blocked': 'Compte temporairement bloqué',
-  'daily_limit_exceeded': 'Limite quotidienne dépassée',
-  'default': 'Une erreur est survenue lors du paiement'
+  'INSUFFICIENT_FUNDS': 'Solde insuffisant',
+  'INVALID_PHONE': 'Numéro de téléphone invalide',
+  'LIMIT_EXCEEDED': 'Limite de transaction dépassée',
+  'NETWORK_ERROR': 'Erreur de réseau',
+  'TIMEOUT': 'Délai d\'attente dépassé',
+  'CANCELLED': 'Paiement annulé par l\'utilisateur',
+  'FRAUD_DETECTED': 'Activité suspecte détectée',
+  'MERCHANT_ERROR': 'Erreur du marchand'
 }
 
-export default function PaymentErrorPage() {
+function PaymentErrorContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const [paymentError, setPaymentError] = useState<PaymentError | null>(null)
@@ -49,41 +47,53 @@ export default function PaymentErrorPage() {
   useEffect(() => {
     const fetchPaymentDetails = async () => {
       try {
-        const type = searchParams.get('type')
-        const amount = searchParams.get('amount')
-        const currency = searchParams.get('currency') || 'XOF'
-        const invoiceId = searchParams.get('invoice')
+        setLoading(true)
+        
+        // Récupérer les paramètres de l'URL
+        const invoiceId = searchParams.get('invoice_id')
         const errorCode = searchParams.get('error_code')
         const errorMessage = searchParams.get('error_message')
         const clientReference = searchParams.get('client_reference')
-
-        let details: PaymentError = {
-          type: type || 'payment',
-          amount: amount || '0',
-          currency,
-          error_code: errorCode || undefined,
-          error_message: errorMessage || undefined,
-          client_reference: clientReference || undefined
-        }
-
-        // Si c'est un paiement de facture, récupérer les détails
+        const amount = searchParams.get('amount')
+        const currency = searchParams.get('currency') || 'XOF'
+        
         if (invoiceId) {
-          try {
-            const response = await fetch(`/api/invoices/${invoiceId}`)
-            if (response.ok) {
-              const invoice = await response.json()
-              details.invoice = invoice
-              details.amount = invoice.amount.toString()
-            }
-          } catch (error) {
-            console.error('Erreur lors du chargement de la facture:', error)
+          // Si on a un ID de facture, récupérer les détails
+          const response = await fetch(`/api/invoices/${invoiceId}`)
+          if (response.ok) {
+            const invoice = await response.json()
+            setPaymentError({
+              type: 'invoice_payment',
+              amount: amount || invoice.amount.toString(),
+              currency,
+              invoice: {
+                id: invoice.id,
+                invoiceNumber: invoice.invoiceNumber,
+                type: invoice.type,
+                clientName: invoice.clientName || invoice.project?.client?.name,
+                project: invoice.project ? {
+                  name: invoice.project.name
+                } : undefined
+              },
+              error_code: errorCode || undefined,
+              error_message: errorMessage || undefined,
+              client_reference: clientReference || undefined
+            })
           }
+        } else {
+          // Paiement générique
+          setPaymentError({
+            type: 'generic_payment',
+            amount: amount || '0',
+            currency,
+            error_code: errorCode || undefined,
+            error_message: errorMessage || undefined,
+            client_reference: clientReference || undefined
+          })
         }
-
-        setPaymentError(details)
       } catch (error) {
-        console.error('Erreur lors du chargement des détails:', error)
-        toast.error('Erreur lors du chargement des détails du paiement')
+        console.error('Erreur lors du chargement des détails de paiement:', error)
+        toast.error('Erreur lors du chargement des détails')
       } finally {
         setLoading(false)
       }
@@ -93,13 +103,12 @@ export default function PaymentErrorPage() {
   }, [searchParams])
 
   const getErrorMessage = (errorCode?: string) => {
-    if (!errorCode) return ERROR_MESSAGES.default
-    return ERROR_MESSAGES[errorCode as keyof typeof ERROR_MESSAGES] || ERROR_MESSAGES.default
+    return ERROR_MESSAGES[errorCode as keyof typeof ERROR_MESSAGES] || 'Erreur de paiement inconnue'
   }
 
   const getErrorSeverity = (errorCode?: string) => {
-    const criticalErrors = ['account_blocked', 'invalid_phone', 'invalid_amount']
-    const warningErrors = ['insufficient_funds', 'daily_limit_exceeded']
+    const criticalErrors = ['FRAUD_DETECTED', 'LIMIT_EXCEEDED']
+    const warningErrors = ['INSUFFICIENT_FUNDS', 'INVALID_PHONE']
     
     if (criticalErrors.includes(errorCode || '')) return 'critical'
     if (warningErrors.includes(errorCode || '')) return 'warning'
@@ -110,32 +119,36 @@ export default function PaymentErrorPage() {
     switch (severity) {
       case 'critical': return 'bg-red-100 text-red-800 border-red-200'
       case 'warning': return 'bg-orange-100 text-orange-800 border-orange-200'
-      default: return 'bg-red-100 text-red-800 border-red-200'
+      case 'error': return 'bg-red-50 text-red-700 border-red-100'
+      default: return 'bg-gray-100 text-gray-800 border-gray-200'
     }
   }
 
   const handleRetryPayment = () => {
-    if (paymentError?.invoice) {
-      router.push(`/invoices/${paymentError.invoice.id}`)
+    if (paymentError?.invoice?.id) {
+      router.push(`/invoices?retry=${paymentError.invoice.id}`)
     } else {
-      router.push('/invoices')
+      router.push('/wave-transactions')
     }
   }
 
   const handleContactSupport = () => {
-    // Ouvrir WhatsApp ou email de support
-    const message = encodeURIComponent(
-      `Bonjour, j'ai rencontré un problème lors d'un paiement Wave.\n\n` +
-      `Détails:\n` +
-      `- Montant: ${formatCurrency(parseFloat(paymentError?.amount || '0'))}\n` +
-      `- Code d'erreur: ${paymentError?.error_code || 'Non spécifié'}\n` +
-      `- Référence: ${paymentError?.client_reference || 'Non spécifiée'}\n\n` +
-      `Pouvez-vous m'aider à résoudre ce problème ?`
-    )
+    const subject = encodeURIComponent(`Erreur de paiement - ${paymentError?.error_code || 'UNKNOWN'}`)
+    const body = encodeURIComponent(`
+Bonjour,
+
+J'ai rencontré une erreur lors d'un paiement :
+
+- Référence : ${paymentError?.client_reference || 'N/A'}
+- Montant : ${paymentError?.amount} ${paymentError?.currency}
+- Code d'erreur : ${paymentError?.error_code || 'N/A'}
+- Message : ${paymentError?.error_message || 'N/A'}
+${paymentError?.invoice ? `- Facture : ${paymentError.invoice.invoiceNumber}` : ''}
+
+Merci de votre aide.
+    `)
     
-    // Remplacer par votre numéro WhatsApp de support
-    const whatsappUrl = `https://wa.me/+2250000000000?text=${message}`
-    window.open(whatsappUrl, '_blank')
+    window.location.href = `mailto:support@example.com?subject=${subject}&body=${body}`
   }
 
   if (loading) {
@@ -146,191 +159,178 @@ export default function PaymentErrorPage() {
     )
   }
 
-  const severity = getErrorSeverity(paymentError?.error_code)
+  if (!paymentError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Card className="w-full max-w-md">
+          <CardContent className="text-center py-8">
+            <AlertCircle className="mx-auto h-12 w-12 text-red-500 mb-4" />
+            <h3 className="text-lg font-medium mb-2">Erreur inconnue</h3>
+            <p className="text-muted-foreground mb-4">
+              Impossible de récupérer les détails de l'erreur de paiement.
+            </p>
+            <Button onClick={() => router.push('/dashboard')}>
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Retour au dashboard
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  const severity = getErrorSeverity(paymentError.error_code)
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-red-50 to-orange-50 flex items-center justify-center p-4">
-      <div className="max-w-md w-full space-y-6">
-        {/* Icône d'erreur */}
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="w-full max-w-2xl space-y-6">
+        {/* Header */}
         <div className="text-center">
           <div className="mx-auto w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
             <AlertCircle className="w-8 h-8 text-red-600" />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Paiement échoué</h1>
-          <p className="text-gray-600 mt-2">
-            Une erreur est survenue lors du traitement de votre paiement
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Échec du paiement</h1>
+          <p className="text-gray-600">
+            Votre paiement n'a pas pu être traité
           </p>
         </div>
 
         {/* Détails de l'erreur */}
-        <Card className="border-red-200">
+        <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-red-700">
+            <CardTitle className="flex items-center gap-2 text-red-600">
               <AlertCircle className="w-5 h-5" />
               Détails de l'erreur
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className={`p-3 rounded-lg border ${getSeverityColor(severity)}`}>
-              <p className="font-medium">
-                {getErrorMessage(paymentError?.error_code)}
-              </p>
-              {paymentError?.error_message && (
-                <p className="text-sm mt-1 opacity-80">
+            <div className={`p-4 rounded-lg border ${getSeverityColor(severity)}`}>
+              <div className="flex items-center gap-2 mb-2">
+                <Badge variant="outline" className="bg-white">
+                  {paymentError.error_code || 'UNKNOWN_ERROR'}
+                </Badge>
+                <span className="font-medium">
+                  {getErrorMessage(paymentError.error_code)}
+                </span>
+              </div>
+              {paymentError.error_message && (
+                <p className="text-sm opacity-90">
                   {paymentError.error_message}
                 </p>
               )}
             </div>
 
-            <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-600">Montant</span>
-              <span className="font-semibold text-lg">
-                {formatCurrency(parseFloat(paymentError?.amount || '0'))}
-              </span>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="text-muted-foreground">Montant :</span>
+                <p className="font-medium">{formatCurrency(parseFloat(paymentError.amount))}</p>
+              </div>
+              {paymentError.client_reference && (
+                <div>
+                  <span className="text-muted-foreground">Référence :</span>
+                  <p className="font-medium">{paymentError.client_reference}</p>
+                </div>
+              )}
             </div>
 
-            {paymentError?.error_code && (
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Code d'erreur</span>
-                <Badge variant="outline" className="font-mono text-xs">
-                  {paymentError.error_code}
-                </Badge>
-              </div>
-            )}
-
-            {paymentError?.client_reference && (
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Référence</span>
-                <Badge variant="secondary" className="font-mono text-xs">
-                  {paymentError.client_reference}
-                </Badge>
-              </div>
-            )}
-
-            {paymentError?.invoice && (
-              <>
-                <div className="border-t pt-4">
-                  <h4 className="font-medium mb-2">Facture concernée</h4>
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-600">Numéro</span>
-                      <span className="font-medium">{paymentError.invoice.invoiceNumber}</span>
-                    </div>
-                    
-                    {paymentError.invoice.clientName && (
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Client</span>
-                        <span className="font-medium">{paymentError.invoice.clientName}</span>
-                      </div>
-                    )}
-
-                    {paymentError.invoice.project && (
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Projet</span>
-                        <span className="font-medium">{paymentError.invoice.project.name}</span>
-                      </div>
-                    )}
-
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-600">Type</span>
-                      <Badge variant={paymentError.invoice.type === 'INVOICE' ? 'default' : 'secondary'}>
-                        {paymentError.invoice.type === 'INVOICE' ? 'Facture' : 'Proforma'}
-                      </Badge>
-                    </div>
+            {paymentError.invoice && (
+              <div className="border-t pt-4">
+                <h4 className="font-medium mb-2">Informations de la facture</h4>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">Numéro :</span>
+                    <p className="font-medium">{paymentError.invoice.invoiceNumber}</p>
                   </div>
+                  <div>
+                    <span className="text-muted-foreground">Type :</span>
+                    <p className="font-medium">
+                      {paymentError.invoice.type === 'INVOICE' ? 'Facture' : 'Proforma'}
+                    </p>
+                  </div>
+                  {paymentError.invoice.clientName && (
+                    <div>
+                      <span className="text-muted-foreground">Client :</span>
+                      <p className="font-medium">{paymentError.invoice.clientName}</p>
+                    </div>
+                  )}
+                  {paymentError.invoice.project && (
+                    <div>
+                      <span className="text-muted-foreground">Projet :</span>
+                      <p className="font-medium">{paymentError.invoice.project.name}</p>
+                    </div>
+                  )}
                 </div>
-              </>
+              </div>
             )}
-          </CardContent>
-        </Card>
-
-        {/* Solutions suggérées */}
-        <Card className="bg-blue-50 border-blue-200">
-          <CardHeader>
-            <CardTitle className="text-blue-800 text-sm">Solutions suggérées</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="text-sm text-blue-700 space-y-2">
-              {paymentError?.error_code === 'insufficient_funds' && (
-                <>
-                  <li>• Vérifiez le solde de votre compte Wave</li>
-                  <li>• Rechargez votre compte si nécessaire</li>
-                </>
-              )}
-              {paymentError?.error_code === 'invalid_phone' && (
-                <>
-                  <li>• Vérifiez que votre numéro Wave est correct</li>
-                  <li>• Assurez-vous que votre compte Wave est actif</li>
-                </>
-              )}
-              {paymentError?.error_code === 'daily_limit_exceeded' && (
-                <>
-                  <li>• Attendez le lendemain pour réessayer</li>
-                  <li>• Contactez Wave pour augmenter vos limites</li>
-                </>
-              )}
-              {paymentError?.error_code === 'network_error' && (
-                <>
-                  <li>• Vérifiez votre connexion internet</li>
-                  <li>• Réessayez dans quelques minutes</li>
-                </>
-              )}
-              <li>• Contactez notre support si le problème persiste</li>
-            </ul>
           </CardContent>
         </Card>
 
         {/* Actions */}
-        <div className="space-y-3">
-          <Button
-            onClick={handleRetryPayment}
-            className="w-full flex items-center gap-2"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Réessayer le paiement
-          </Button>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Button
-              variant="outline"
-              onClick={() => router.push('/invoices')}
-              className="flex items-center gap-2"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Retour
-            </Button>
-            
-            <Button
-              variant="outline"
-              onClick={handleContactSupport}
-              className="flex items-center gap-2"
-            >
-              <Phone className="w-4 h-4" />
-              Support
-            </Button>
-          </div>
-
-          <Button
-            variant="outline"
-            onClick={() => router.push('/wave-transactions')}
-            className="w-full flex items-center gap-2"
-          >
-            <ExternalLink className="w-4 h-4" />
-            Voir les transactions Wave
-          </Button>
-        </div>
-
-        {/* Message d'aide */}
-        <Card className="bg-gray-50 border-gray-200">
+        <Card>
           <CardContent className="pt-6">
-            <div className="text-center">
-              <p className="text-sm text-gray-600">
-                Besoin d'aide ? Notre équipe support est disponible pour vous assister.
-              </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Button 
+                onClick={handleRetryPayment}
+                className="w-full"
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Réessayer le paiement
+              </Button>
+              
+              <Button 
+                variant="outline" 
+                onClick={handleContactSupport}
+                className="w-full"
+              >
+                <Phone className="w-4 h-4 mr-2" />
+                Contacter le support
+              </Button>
+              
+              <Button 
+                variant="ghost" 
+                onClick={() => router.push('/dashboard')}
+                className="w-full sm:col-span-2"
+              >
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Retour au dashboard
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Informations supplémentaires */}
+        <Card>
+          <CardContent className="pt-6">
+            <h4 className="font-medium mb-3">Que faire ensuite ?</h4>
+            <div className="space-y-3 text-sm text-muted-foreground">
+              <div className="flex gap-3">
+                <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-medium flex-shrink-0">1</div>
+                <p>Vérifiez les détails de votre paiement et votre solde</p>
+              </div>
+              <div className="flex gap-3">
+                <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-medium flex-shrink-0">2</div>
+                <p>Réessayez le paiement en cliquant sur "Réessayer"</p>
+              </div>
+              <div className="flex gap-3">
+                <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-medium flex-shrink-0">3</div>
+                <p>Si le problème persiste, contactez notre support technique</p>
+              </div>
             </div>
           </CardContent>
         </Card>
       </div>
     </div>
+  )
+}
+
+export default function PaymentErrorPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-red-500"></div>
+      </div>
+    }>
+      <PaymentErrorContent />
+    </Suspense>
   )
 } 
