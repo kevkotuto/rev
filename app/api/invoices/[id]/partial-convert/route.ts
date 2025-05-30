@@ -45,7 +45,7 @@ export async function POST(
     }
 
     const body = await request.json()
-    console.log("Données reçues:", JSON.stringify(body, null, 2))
+    console.log("Données reçues pour la conversion partielle :", JSON.stringify(body, null, 2))
     
     const validatedData = partialConvertSchema.parse(body)
 
