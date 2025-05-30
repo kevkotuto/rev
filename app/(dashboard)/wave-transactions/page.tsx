@@ -528,7 +528,10 @@ export default function WaveTransactionsPage() {
       const response = await fetch('/api/wave/payout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sendMoneyForm)
+        body: JSON.stringify({
+          ...sendMoneyForm,
+          receive_amount: Number(sendMoneyForm.receive_amount) // Conversion explicite en nombre
+        })
       })
 
       if (response.ok) {
