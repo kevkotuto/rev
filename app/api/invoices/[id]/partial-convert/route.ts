@@ -8,10 +8,10 @@ const partialConvertSchema = z.object({
   selectedServices: z.array(z.object({
     id: z.string(),
     name: z.string(),
-    description: z.string().optional(),
+    description: z.string().optional().nullable(),
     unitPrice: z.number(),
     quantity: z.number(),
-    unit: z.string().optional(),
+    unit: z.string().optional().nullable(),
     projectServiceId: z.string().optional()
   })),
   clientInfo: z.object({
@@ -45,6 +45,8 @@ export async function POST(
     }
 
     const body = await request.json()
+    console.log("Données reçues:", JSON.stringify(body, null, 2))
+    
     const validatedData = partialConvertSchema.parse(body)
 
     // Récupérer la proforma
@@ -147,11 +149,25 @@ export async function POST(
             const waveData = await waveResponse.json()
             paymentLink = waveData.wave_launch_url
           } else {
-            console.error('Erreur Wave API:', await waveResponse.text())
+            const errorText = await waveResponse.text()
+            console.error('Erreur Wave API:', errorText)
+            return NextResponse.json(
+              { message: `Erreur Wave CI: ${errorText}` },
+              { status: 400 }
+            )
           }
+        } else {
+          return NextResponse.json(
+            { message: "Clé API Wave non configurée pour cet utilisateur" },
+            { status: 400 }
+          )
         }
       } catch (error) {
         console.error('Erreur lors de la création du lien de paiement Wave:', error)
+        return NextResponse.json(
+          { message: "Erreur lors de la création du lien de paiement Wave" },
+          { status: 400 }
+        )
       }
     }
 
@@ -240,6 +256,7 @@ export async function POST(
 
   } catch (error) {
     if (error instanceof z.ZodError) {
+      console.error("Erreur de validation:", error.errors)
       return NextResponse.json(
         { message: "Données invalides", errors: error.errors },
         { status: 400 }
