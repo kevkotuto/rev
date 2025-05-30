@@ -517,7 +517,7 @@ export default function ProjectDetailPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          receive_amount: amount.toString(),
+          receive_amount: amount, // Envoi comme nombre
           mobile: provider.phone,
           name: provider.name,
           payment_reason: `Paiement Wave pour projet ${project?.name}`,
